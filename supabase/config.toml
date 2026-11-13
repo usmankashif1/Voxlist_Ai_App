@@ -1,0 +1,5 @@
+project_id = "aivoicetodo"
+
+[functions.ai-proxy]
+verify_jwt = true
+

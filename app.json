@@ -1,0 +1,39 @@
+{
+  "name": "Voxlist Ai",
+  "slug": "voxlist-ai",
+  "icon": "./src/assets/images/Logo.png",
+  "android": {
+    "package": "com.usmankashif.voxlistai",
+    "permissions": [
+      "android.permission.SCHEDULE_EXACT_ALARM"
+    ],
+    "adaptiveIcon": {
+      "foregroundImage": "./src/assets/images/adaptive-icon.png",
+      "backgroundColor": "#15171C"
+    }
+  },
+  "plugins": [
+    [
+      "expo-audio",
+      {
+        "microphonePermission": "Allow VoxList Ai to access your microphone for voice task creation.",
+        "enableBackgroundPlayback": false
+      }
+    ],
+    [
+      "expo-splash-screen",
+      {
+        "image": "./src/assets/images/Logo.png",
+        "imageWidth": 200,
+        "resizeMode": "contain",
+        "backgroundColor": "#FFFFFF"
+      }
+    ],
+    [
+      "expo-notifications",
+      {
+        "icon": "./src/assets/icons/notification-icon.png"
+      }
+    ]
+  ]
+}
