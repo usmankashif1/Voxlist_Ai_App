@@ -1,5 +1,6 @@
 import type { Session, Subscription } from '@supabase/supabase-js';
 import { createSignUpClient, getSupabaseClient } from '../core/auth/supabase';
+import { getFunctionErrorMessage } from '../core/api/edgeFunctionError';
 import { getErrorMessage } from '../core/utils/errorMessage';
 import type { AppDispatch } from './store';
 import {
@@ -17,6 +18,23 @@ interface Credentials {
 }
 
 let authSubscription: Subscription | null = null;
+let anonymousSessionRequest: Promise<Session> | null = null;
+
+const createAnonymousSession = (): Promise<Session> => {
+    if (!anonymousSessionRequest) {
+        anonymousSessionRequest = getSupabaseClient().auth.signInAnonymously()
+            .then(({ data, error }) => {
+                if (error) throw error;
+                if (!data.session) throw new Error('Guest sign in returned no active session.');
+                return data.session;
+            })
+            .finally(() => {
+                anonymousSessionRequest = null;
+            });
+    }
+
+    return anonymousSessionRequest;
+};
 
 export const initializeAuth = () => async (dispatch: AppDispatch): Promise<void> => {
     dispatch(setLoading(true));
@@ -40,6 +58,15 @@ export const initializeAuth = () => async (dispatch: AppDispatch): Promise<void>
     } finally {
         dispatch(setLoading(false));
     }
+};
+
+export const ensureVoiceSession = () => async (dispatch: AppDispatch): Promise<Session> => {
+    const { data, error } = await getSupabaseClient().auth.getSession();
+    if (error) throw error;
+
+    const session = data.session ?? await createAnonymousSession();
+    dispatch(setSession(session));
+    return session;
 };
 
 export const signIn = (credentials: Credentials) => async (
@@ -130,6 +157,34 @@ export const signOut = () => async (dispatch: AppDispatch): Promise<void> => {
         dispatch(setSession(null));
     } catch (error) {
         dispatch(setError(getErrorMessage(error)));
+    } finally {
+        dispatch(setSubmitting(false));
+    }
+};
+
+export const deleteAccount = () => async (dispatch: AppDispatch): Promise<boolean> => {
+    dispatch(setSubmitting(true));
+    dispatch(setError(null));
+
+    try {
+        const client = getSupabaseClient();
+        const { data, error } = await client.functions.invoke<{ success: boolean }>('delete-account');
+        if (error) {
+            throw new Error(await getFunctionErrorMessage(error, 'Could not delete the account.'));
+        }
+        if (!data?.success) {
+            throw new Error('The server did not confirm account deletion. Please try again.');
+        }
+
+        const { error: signOutError } = await client.auth.signOut({ scope: 'local' });
+        if (signOutError) {
+            throw new Error(`Account deleted, but the local session could not be cleared: ${signOutError.message}`);
+        }
+        dispatch(setSession(null));
+        return true;
+    } catch (error) {
+        dispatch(setError(getErrorMessage(error)));
+        return false;
     } finally {
         dispatch(setSubmitting(false));
     }

@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+    ActivityIndicator,
+    Alert,
     KeyboardAvoidingView,
     Platform,
     RefreshControl,
@@ -13,6 +15,7 @@ import * as Network from 'expo-network';
 import { RF, RH, RS, RW } from '../../../core/utils/responsive';
 import { getTaskDateLabel } from '../../../core/utils/dateTime';
 import { taskTheme } from '../../../core/theme/taskTheme';
+import { getErrorMessage } from '../../../core/utils/errorMessage';
 import TaskCard from '../components/TaskCard';
 import TaskEditorModal from '../components/TaskEditorModal';
 import VoiceTaskReviewModal from '../components/VoiceTaskReviewModal';
@@ -24,6 +27,8 @@ import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
 import * as SecureStore from 'expo-secure-store';
+import { ensureVoiceSession } from '../../../store/authThunks';
+import { useAppDispatch } from '../../../store/hooks';
 import {
     requestMicrophonePermission,
     requestNotificationPermission,
@@ -56,6 +61,7 @@ const groupTasks = (tasks: Task[]): TaskSection[] => {
 
 const HomeScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
+    const dispatch = useAppDispatch();
     const insets = useSafeAreaInsets();
     const {
         items,
@@ -83,6 +89,7 @@ const HomeScreen = () => {
     const [isSavingTask, setIsSavingTask] = useState(false);
     const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
     const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+    const [isPreparingVoice, setIsPreparingVoice] = useState(false);
     const [isInternetSheetOpen, setIsInternetSheetOpen] = useState(false);
     const [isOffline, setIsOffline] = useState(true);
     const [selectedCategory, setSelectedCategory] = useState<TaskDateLabel>('Today');
@@ -179,12 +186,23 @@ const HomeScreen = () => {
 
 
     const handleConfirmVoiceTasks = async (tasks: ExtractedTask[]) => addTasks(tasks);
-    const handleVoicePress = () => {
+    const handleVoicePress = async () => {
         if (isOffline) {
             setIsInternetSheetOpen(true);
             return;
         }
-        setIsVoiceModalOpen(true);
+        if (isPreparingVoice) return;
+
+        setIsPreparingVoice(true);
+        try {
+            await dispatch(ensureVoiceSession());
+            setIsVoiceModalOpen(true);
+        } catch (error) {
+            console.error('Could not prepare authentication for voice input.', error);
+            Alert.alert('Could not start voice input', getErrorMessage(error));
+        } finally {
+            setIsPreparingVoice(false);
+        }
     };
 
 
@@ -253,7 +271,6 @@ const HomeScreen = () => {
                 })}
             </ScrollView>
 
-            {loading ? <AppText style={styles.emptyText}>Loading tasks…</AppText> : null}
             {error ? (
                 <View style={styles.errorNotice}>
                     <AppText style={styles.errorText}>{error}</AppText>
@@ -293,7 +310,7 @@ const HomeScreen = () => {
                     )}
                     ListHeaderComponent={renderListHeader()}
                     ListEmptyComponent={
-                        loading ? <View /> : (
+                        loading ? undefined : (
                             <View style={styles.emptyState}>
                                 <AppText style={styles.emptyText}>
                                     No {selectedCategory.toLowerCase()} tasks.
@@ -323,10 +340,15 @@ const HomeScreen = () => {
                     { bottom: insets.bottom + RH(taskTheme.spacing.xl) },
                 ]}
                 onPress={handleVoicePress}
+                disabled={isPreparingVoice}
                 accessibilityRole="button"
-                accessibilityLabel="Create tasks by voice"
+                accessibilityLabel={isPreparingVoice
+                    ? 'Preparing voice input'
+                    : 'Create tasks by voice'}
             >
-                <FontAwesome5 name="microphone" size={RS(26)} color="white" />
+                {isPreparingVoice
+                    ? <ActivityIndicator color="white" />
+                    : <FontAwesome5 name="microphone" size={RS(26)} color="white" />}
             </AppButton>
 
             <TaskEditorModal

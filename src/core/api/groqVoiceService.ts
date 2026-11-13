@@ -26,6 +26,7 @@ export const transcribeAudioWithGroq = async (
     );
 
     if (error) {
+        if (signal?.aborted) throw error;
         throw new Error(await getFunctionErrorMessage(
             error,
             'Could not transcribe the recording.',

@@ -5,14 +5,14 @@ import HomeNavigator from '../../../screens/home/navigation/HomeNavigator';
 
 export type MainStackParamList = {
     Tabs: undefined;
-    Home: undefined;
+    HomeFlow: undefined;
 };
 
 const Stack = createNativeStackNavigator<MainStackParamList>();
 
 const StackNavigator = () => (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Home" component={HomeNavigator} />
+        <Stack.Screen name="HomeFlow" component={HomeNavigator} />
     </Stack.Navigator>
 );
 

@@ -4,6 +4,7 @@ import {
 } from 'expo-notifications';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import { selectAuth } from '../../../store/slices/authSlice';
 import { useAppSelector } from '../../../store/hooks';
 import { cancelTaskReminder, scheduleTaskReminder } from '../../../core/notifications/taskReminderService';
@@ -25,6 +26,16 @@ import type { ExtractedTask, Task } from '../home.types';
 
 // Expo persists requests separately from AlarmManager, so restore alarms after Android restarts the process.
 const restoredAndroidAlarmOwners = new Set<string | null>();
+let startupSplashHidden = false;
+
+const hideStartupSplash = (): void => {
+    if (startupSplashHidden) return;
+    startupSplashHidden = true;
+    void SplashScreen.hideAsync().catch(error => {
+        startupSplashHidden = false;
+        console.error('Could not hide the splash screen after local task loading.', error);
+    });
+};
 
 const scheduleAndStoreReminder = async (
     task: Task,
@@ -171,7 +182,7 @@ const reconcileTaskReminders = async (
 };
 
 const useTasks = () => {
-    const { session } = useAppSelector(selectAuth);
+    const { session, isLoading: isAuthLoading } = useAppSelector(selectAuth);
     const userId = session && session.user.is_anonymous !== true
         ? session.user.id
         : null;
@@ -183,6 +194,8 @@ const useTasks = () => {
     const reloadRequested = useRef(false);
 
     const reload = useCallback(() => {
+        if (isAuthLoading) return Promise.resolve();
+
         reloadRevision.current += 1;
         if (reloadInFlight.current) {
             reloadRequested.current = true;
@@ -198,6 +211,7 @@ const useTasks = () => {
                     if (revision !== reloadRevision.current) continue;
                     setItems(storedTasks);
                     setLoading(false);
+                    hideStartupSplash();
 
                     try {
                         const restoreAndroidAlarms = Platform.OS === 'android'
@@ -216,6 +230,8 @@ const useTasks = () => {
                     if (revision !== reloadRevision.current) continue;
                     console.error('Could not load stored tasks.', reconciliationError);
                     setError("We couldn't load your tasks. Please try again.");
+                    setLoading(false);
+                    hideStartupSplash();
                 } finally {
                     if (revision === reloadRevision.current) setLoading(false);
                 }
@@ -225,7 +241,7 @@ const useTasks = () => {
         return operation.finally(() => {
             if (reloadInFlight.current === operation) reloadInFlight.current = null;
         });
-    }, [userId]);
+    }, [isAuthLoading, userId]);
 
     const invalidatePendingReload = useCallback(() => {
         if (!reloadInFlight.current) return;

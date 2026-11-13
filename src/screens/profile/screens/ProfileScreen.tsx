@@ -1,12 +1,12 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import { RF, RH, RS, RW } from '../../../core/utils/responsive';
 import { taskTheme } from '../../../core/theme/taskTheme';
 import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
 import BackButton from '../../../components/BackButton';
-import { signOut } from '../../../store/authThunks';
+import { deleteAccount, signOut } from '../../../store/authThunks';
 import { selectAuth } from '../../../store/slices/authSlice';
 import { useAppDispatch, useAppSelector } from '../../../store/hooks';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,6 +19,26 @@ const ProfileScreen = () => {
 
     const handleSignOut = () => {
         dispatch(signOut());
+    };
+
+    const handleDeleteAccount = () => {
+        Alert.alert(
+            'Delete your account?',
+            'This permanently removes your account, synced tasks, and access to the app.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                        const wasDeleted = await dispatch(deleteAccount());
+                        if (wasDeleted) {
+                            Alert.alert('Account deleted', 'Your account has been removed successfully.');
+                        }
+                    },
+                },
+            ],
+        );
     };
 
     return (
@@ -86,16 +106,35 @@ const ProfileScreen = () => {
                         </AppButton>
                     </>
                 ) : (
-                    <AppButton
-                        style={styles.primaryButton}
-                        onPress={handleSignOut}
-                        disabled={isSubmitting}
-                        accessibilityRole="button"
-                    >
-                        {isSubmitting
-                            ? <ActivityIndicator color={taskTheme.colors.white} />
-                            : <AppText style={styles.primaryButtonText}>Log out</AppText>}
-                    </AppButton>
+                    <>
+                        <AppButton
+                            style={styles.primaryButton}
+                            onPress={handleSignOut}
+                            disabled={isSubmitting}
+                            accessibilityRole="button"
+                        >
+                            {isSubmitting
+                                ? <ActivityIndicator color={taskTheme.colors.white} />
+                                : <AppText style={styles.primaryButtonText}>Log out</AppText>}
+                        </AppButton>
+
+                        <AppButton
+                            style={styles.secondaryButton}
+                            onPress={() => navigation.navigate('ReportAiContent')}
+                            accessibilityRole="button"
+                        >
+                            <AppText style={styles.secondaryButtonText}>Report AI issue</AppText>
+                        </AppButton>
+
+                        <AppButton
+                            style={styles.deleteButton}
+                            onPress={handleDeleteAccount}
+                            disabled={isSubmitting}
+                            accessibilityRole="button"
+                        >
+                            <AppText style={styles.deleteButtonText}>Delete account</AppText>
+                        </AppButton>
+                    </>
                 )}
             </View>
         </SafeAreaView>
@@ -180,6 +219,19 @@ const styles = StyleSheet.create({
         color: taskTheme.colors.text,
         fontSize: RF(14),
         fontWeight: '600',
+    },
+    deleteButton: {
+        minHeight: RH(48),
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: RH(taskTheme.spacing.sm),
+        backgroundColor: taskTheme.colors.danger,
+        borderRadius: RS(taskTheme.radius.md),
+    },
+    deleteButtonText: {
+        color: taskTheme.colors.white,
+        fontSize: RF(14),
+        fontWeight: '700',
     },
     error: {
         color: taskTheme.colors.danger,

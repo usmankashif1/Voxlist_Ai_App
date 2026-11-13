@@ -6,6 +6,7 @@ import ProfileScreen from '../../profile/screens/ProfileScreen';
 import LoginScreen from '../../auth/screens/LoginScreen';
 import SignUpScreen from '../../auth/screens/SignUpScreen';
 import TaskDetailsScreen from '../screens/TaskDetailsScreen';
+import ReportAiContentScreen from '../../profile/screens/ReportAiContentScreen';
 
 export type HomeStackParamList = {
     Home: undefined;
@@ -13,6 +14,7 @@ export type HomeStackParamList = {
     Settings: undefined;
     Login: undefined;
     SignUp: undefined;
+    ReportAiContent: undefined;
 };
 
 const Stack = createNativeStackNavigator<HomeStackParamList>();
@@ -30,6 +32,7 @@ const HomeNavigator = () => (
         <Stack.Screen name="Settings" component={ProfileScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="SignUp" component={SignUpScreen} />
+        <Stack.Screen name="ReportAiContent" component={ReportAiContentScreen} />
     </Stack.Navigator>
 );
 

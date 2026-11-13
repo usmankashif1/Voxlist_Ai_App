@@ -6,7 +6,8 @@ import {
     TextInput,
     View,
 } from 'react-native';
-import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RF, RH, RS, RW } from '../../../core/utils/responsive';
 import { continueAsGuest, signIn } from '../../../store/authThunks';
 import { clearAuthMessages, selectAuth } from '../../../store/slices/authSlice';
@@ -15,9 +16,10 @@ import { taskTheme } from '../../../core/theme/taskTheme';
 import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
 import AuthScreenLayout from '../components/AuthScreenLayout';
+import type { HomeStackParamList } from '../../home/navigation/HomeNavigator';
 
 const LoginScreen = () => {
-    const navigation = useNavigation<NavigationProp<ParamListBase>>();
+    const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
     const dispatch = useAppDispatch();
     const { session, error, initializationError, isSubmitting } = useAppSelector(selectAuth);
     const [email, setEmail] = useState('');
@@ -28,7 +30,7 @@ const LoginScreen = () => {
         Keyboard.dismiss();
         dispatch(clearAuthMessages());
         const result = await dispatch(signIn({ email, password }));
-        if (result) navigation.navigate('Settings');
+        if (result) navigation.popTo('Settings');
     };
 
     const handleContinueAsGuest = () => {

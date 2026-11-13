@@ -3,3 +3,9 @@ project_id = "aivoicetodo"
 [functions.ai-proxy]
 verify_jwt = true
 
+[functions.delete-account]
+verify_jwt = true
+
+[functions.report-ai-content]
+verify_jwt = true
+

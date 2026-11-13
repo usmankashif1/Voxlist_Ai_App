@@ -78,6 +78,7 @@ export const generateTaskCandidates = async (
     );
 
     if (error) {
+        if (signal?.aborted) throw error;
         throw new Error(await getFunctionErrorMessage(error, 'Gemini could not extract tasks.'));
     }
     if (!data) throw new Error('Gemini returned an empty response.');

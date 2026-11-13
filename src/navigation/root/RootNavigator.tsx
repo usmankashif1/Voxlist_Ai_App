@@ -35,14 +35,22 @@ const RootNavigator = () => {
                 console.error('Task sync failed; local changes are still saved.', error);
             });
         };
-        const networkSubscription = Network.addNetworkStateListener(state => {
-            if (state.isConnected && state.isInternetReachable !== false) sync();
-        });
+        let isOnline = false;
+        const updateNetworkState = (state: Network.NetworkState) => {
+            const wasOnline = isOnline;
+            isOnline = state.isConnected === true && state.isInternetReachable !== false;
+            if (isOnline && !wasOnline) sync();
+        };
+        const networkSubscription = Network.addNetworkStateListener(updateNetworkState);
+        void Network.getNetworkStateAsync()
+            .then(updateNetworkState)
+            .catch(error => {
+                console.error('Could not determine network availability for task sync.', error);
+            });
         const appStateSubscription = AppState.addEventListener('change', state => {
-            if (state === 'active') sync();
+            if (state === 'active' && isOnline) sync();
         });
 
-        sync();
         return () => {
             networkSubscription.remove();
             appStateSubscription.remove();
