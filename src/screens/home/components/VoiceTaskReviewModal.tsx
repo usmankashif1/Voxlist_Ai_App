@@ -135,13 +135,16 @@ const VoiceTaskReviewModal = ({
     };
 
     const handleVoiceError = (message: string) => {
+        console.error('Could not process voice input.', message);
         if (/HTTP 503|providerStatus["'\s:]+503|high demand|high traffic/i.test(message)) {
             setError('The AI is experiencing high traffic right now. Please try again shortly.');
             return;
         }
         const isUsageLimit = /HTTP 429|providerStatus["'\s:]+429|RESOURCE_EXHAUSTED|rate.?limit|quota exceeded|daily_(user|global)|per_minute/i
             .test(message);
-        setError(isUsageLimit ? 'AI usage limit reached. Please try again later.' : message);
+        setError(isUsageLimit
+            ? 'AI usage limit reached. Please try again later.'
+            : "We couldn't process your request. Please try again.");
     };
 
 

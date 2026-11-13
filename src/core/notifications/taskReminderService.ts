@@ -24,24 +24,30 @@ export const scheduleTaskReminder = async (
     task: Task,
     promptForPermissions = true,
 ): Promise<ScheduledTaskReminder | null> => {
+
     if (!task.reminderEnabled || !task.dueDate || !task.dueTime) {
         return null;
     }
+
 
     const dueAt = getLocalDueDate(task.dueDate, task.dueTime);
     if (dueAt.getTime() <= Date.now()) {
         throw new Error('The reminder time is in the past. Choose a future date and time.');
     }
 
+
     if (Platform.OS === 'android' && !promptForPermissions) {
         await prepareNotificationChannel();
     }
+
+
     const notificationsAllowed = promptForPermissions
         ? await requestNotificationPermission(true)
         : (await getPermissionsAsync()).granted;
     if (!notificationsAllowed) {
         throw new Error('Notification permission was not granted. Enable it in system settings to receive reminders.');
     }
+
 
     const exactAlarmGranted = promptForPermissions
         ? await requestExactAlarmPermission()

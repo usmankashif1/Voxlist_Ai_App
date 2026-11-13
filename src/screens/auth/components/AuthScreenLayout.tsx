@@ -1,28 +1,48 @@
 import React from 'react';
-import { KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, View } from 'react-native';
+import {
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { RF, RH, RW } from '../../../core/utils/responsive';
 import { taskTheme } from '../../../core/theme/taskTheme';
 import AppText from '../../../components/AppText';
+import BackButton from '../../../components/BackButton';
 
 interface AuthScreenLayoutProps extends React.PropsWithChildren {
     title: string;
     subtitle: string;
+    onBack: () => void;
 }
 
-const AuthScreenLayout = ({ title, subtitle, children }: AuthScreenLayoutProps) => (
+const AuthScreenLayout = ({ title, subtitle, onBack, children }: AuthScreenLayoutProps) => (
     <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
             style={styles.flex}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-            <View style={styles.content}>
-                <View style={styles.heading}>
-                    <AppText style={styles.brand}>VoxList Ai</AppText>
-                    <AppText style={styles.title}>{title}</AppText>
-                    <AppText style={styles.subtitle}>{subtitle}</AppText>
+            <ScrollView
+                contentContainerStyle={styles.content}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+            >
+                <BackButton
+                    label="Back"
+                    onPress={onBack}
+                    style={styles.backButton}
+                />
+                <View style={styles.body}>
+                    <View style={styles.heading}>
+                        <AppText style={styles.brand}>VoxList Ai</AppText>
+                        <AppText style={styles.title}>{title}</AppText>
+                        <AppText style={styles.subtitle}>{subtitle}</AppText>
+                    </View>
+                    {children}
                 </View>
-                {children}
-            </View>
+            </ScrollView>
         </KeyboardAvoidingView>
     </SafeAreaView>
 );
@@ -37,9 +57,15 @@ const styles = StyleSheet.create({
     },
     content: {
         flexGrow: 1,
-        justifyContent: 'center',
         paddingHorizontal: RW(taskTheme.spacing.xl),
-        paddingVertical: RH(taskTheme.spacing.xxl),
+        paddingBottom: RH(taskTheme.spacing.xxl),
+    },
+    backButton: {
+        marginBottom: RH(taskTheme.spacing.md),
+    },
+    body: {
+        flexGrow: 1,
+        justifyContent: 'center',
     },
     heading: {
         marginBottom: RH(taskTheme.spacing.xxl),

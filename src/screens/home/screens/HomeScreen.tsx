@@ -32,8 +32,10 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { HomeStackParamList } from '../navigation/HomeNavigator';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
+
 const sectionOrder: TaskDateLabel[] = ['Overdue', 'Today', 'Tomorrow', 'Upcoming', 'No Date'];
 const HOME_PERMISSIONS_PROMPTED_KEY = 'home-permissions-prompted-v2';
+
 
 const groupTasks = (tasks: Task[]): TaskSection[] => {
     const groups = new Map<TaskDateLabel, Task[]>(
@@ -50,6 +52,7 @@ const groupTasks = (tasks: Task[]): TaskSection[] => {
         return data.length ? [{ title, data }] : [];
     });
 };
+
 
 const HomeScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
@@ -109,6 +112,7 @@ const HomeScreen = () => {
     }, []);
 
 
+    
 
     useEffect(() => {
         if (hasStartedPermissionCheck.current) return;

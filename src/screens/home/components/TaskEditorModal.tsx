@@ -140,8 +140,8 @@ const TaskEditorModal = ({
             if (!await onSave(validatedTask)) {
                 setError('Could not save the task. Please try again.');
             }
-        } catch (validationError) {
-            setError(validationError instanceof Error ? validationError.message : 'Check the task details.');
+        } catch {
+            setError('Please check the task details and try again.');
         }
     };
 

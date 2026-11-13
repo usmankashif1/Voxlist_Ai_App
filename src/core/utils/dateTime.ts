@@ -55,6 +55,26 @@ export const getTaskDateLabel = (dueDate: string | null, today = new Date()): Ta
     return 'Upcoming';
 };
 
+export const formatUpcomingDate = (dueDate: string): string => {
+    const [year, month, day] = dueDate.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+    }).formatToParts(date);
+    const getPart = (type: 'weekday' | 'day' | 'month' | 'year') => {
+        const value = parts.find(part => part.type === type)?.value;
+        if (!value) {
+            throw new Error(`Could not format the upcoming task ${type}.`);
+        }
+        return value;
+    };
+
+    return `${getPart('weekday')} / ${getPart('day')} ${getPart('month')}, ${getPart('year')}`;
+};
+
 export const formatTime12Hour = (time: string): string => {
     if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) {
         return time;

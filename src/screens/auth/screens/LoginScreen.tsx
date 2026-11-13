@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Keyboard,
     StyleSheet,
     TextInput,
     View,
@@ -13,7 +14,6 @@ import { useAppDispatch, useAppSelector } from '../../../store/hooks';
 import { taskTheme } from '../../../core/theme/taskTheme';
 import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
-import BackButton from '../../../components/BackButton';
 import AuthScreenLayout from '../components/AuthScreenLayout';
 
 const LoginScreen = () => {
@@ -22,14 +22,17 @@ const LoginScreen = () => {
     const { session, error, initializationError, isSubmitting } = useAppSelector(selectAuth);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const passwordInput = useRef<React.ElementRef<typeof TextInput>>(null);
 
     const handleLogin = async () => {
+        Keyboard.dismiss();
         dispatch(clearAuthMessages());
         const result = await dispatch(signIn({ email, password }));
-        if (result && session) navigation.goBack();
+        if (result) navigation.navigate('Settings');
     };
 
     const handleContinueAsGuest = () => {
+        Keyboard.dismiss();
         dispatch(clearAuthMessages());
         dispatch(continueAsGuest());
     };
@@ -38,7 +41,9 @@ const LoginScreen = () => {
         <AuthScreenLayout
             title="Welcome back"
             subtitle="Sign in to your account, or continue without one."
+            onBack={() => navigation.goBack()}
         >
+
             <View style={styles.form}>
                 <TextInput
                     style={styles.input}
@@ -52,8 +57,12 @@ const LoginScreen = () => {
                     textContentType="emailAddress"
                     editable={!isSubmitting}
                     accessibilityLabel="Email"
+                    onSubmitEditing={() => passwordInput.current?.focus()}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
                 />
                 <TextInput
+                    ref={passwordInput}
                     style={styles.input}
                     value={password}
                     onChangeText={setPassword}
@@ -102,14 +111,7 @@ const LoginScreen = () => {
                     >
                         <AppText style={styles.guestButtonText}>Continue as guest</AppText>
                     </AppButton>
-                ) : (
-                    <BackButton
-                        style={styles.guestButton}
-                        onPress={() => navigation.goBack()}
-                        disabled={isSubmitting}
-                        label="Back to settings"
-                    />
-                )}
+                ) : null}
             </View>
         </AuthScreenLayout>
     );

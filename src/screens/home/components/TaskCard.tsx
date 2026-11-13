@@ -4,7 +4,7 @@ import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
 import { taskTheme } from '../../../core/theme/taskTheme';
-import { formatTime12Hour } from '../../../core/utils/dateTime';
+import { formatTime12Hour, formatUpcomingDate } from '../../../core/utils/dateTime';
 import { RF, RS } from '../../../core/utils/responsive';
 import type { Task } from '../home.types';
 import DeleteTaskConfirmationModal from './DeleteTaskConfirmationModal';
@@ -27,6 +27,9 @@ const TaskCard = ({
     onDelete,
 }: TaskCardProps) => {
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+    const displayDateLabel = dateLabel === 'Upcoming' && task.dueDate
+        ? formatUpcomingDate(task.dueDate)
+        : dateLabel;
 
     return (
         <View style={styles.card}>
@@ -63,7 +66,7 @@ const TaskCard = ({
                     ) : null}
                     <View style={styles.metadata}>
                         <AppText style={styles.dateLabel}>
-                            {dateLabel}{task.dueTime ? ` · ${formatTime12Hour(task.dueTime)}` : ''}
+                            {displayDateLabel}{task.dueTime ? ` · ${formatTime12Hour(task.dueTime)}` : ''}
                         </AppText>
                     </View>
                 </AppButton>

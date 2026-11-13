@@ -20,7 +20,6 @@ import {
     subscribeToTaskSync,
     syncTasksForUser,
 } from '../../../core/storage/taskSyncService';
-import { getErrorMessage } from '../../../core/utils/errorMessage';
 import { getLocalDueDate } from '../../../core/utils/dateTime';
 import type { ExtractedTask, Task } from '../home.types';
 
@@ -162,7 +161,7 @@ const reconcileTaskReminders = async (
         } catch (scheduleError) {
             console.error(`Could not schedule a reminder for task ${task.id}.`, scheduleError);
             if (!reminderError) {
-                reminderError = `Could not schedule the reminder for "${task.title}". ${getErrorMessage(scheduleError)}`;
+                reminderError = "We couldn't set one or more task reminders. Your tasks are saved, but might not notify you.";
             }
             reconciledTasks.push(taskWithoutReminder);
         }
@@ -215,7 +214,8 @@ const useTasks = () => {
                     }
                 } catch (reconciliationError) {
                     if (revision !== reloadRevision.current) continue;
-                    setError(getErrorMessage(reconciliationError));
+                    console.error('Could not load stored tasks.', reconciliationError);
+                    setError("We couldn't load your tasks. Please try again.");
                 } finally {
                     if (revision === reloadRevision.current) setLoading(false);
                 }
@@ -258,7 +258,8 @@ const useTasks = () => {
             void reload();
             return true;
         } catch (saveError) {
-            setError(getErrorMessage(saveError));
+            console.error('Could not create task.', saveError);
+            setError("We couldn't create your task. Please try again.");
             return false;
         }
     }, [reload, requestSync, userId]);
@@ -285,7 +286,8 @@ const useTasks = () => {
                     task.id === existingTask.id ? existingTask : task
                 )));
             }
-            setError(getErrorMessage(saveError));
+            console.error('Could not save task changes.', saveError);
+            setError("We couldn't save your changes. Please try again.");
             return false;
         }
         requestSync();
@@ -311,7 +313,8 @@ const useTasks = () => {
             setItems(current => current.map(item => (
                 item.id === task.id ? task : item
             )));
-            setError(getErrorMessage(updateError));
+            console.error('Could not update task completion.', updateError);
+            setError("We couldn't update your task. Please try again.");
             return;
         }
 
@@ -351,7 +354,8 @@ const useTasks = () => {
                 restoredSubtasks[subtaskIndex] = task.completedSubtasks[subtaskIndex] ?? false;
                 return { ...item, completedSubtasks: restoredSubtasks };
             }));
-            setError(getErrorMessage(updateError));
+            console.error('Could not update subtask completion.', updateError);
+            setError("We couldn't update the subtask. Please try again.");
             return;
         }
 
@@ -368,13 +372,14 @@ const useTasks = () => {
             setItems(current => current.some(item => item.id === task.id)
                 ? current
                 : [...current, task]);
-            setError(getErrorMessage(deleteError));
+            console.error('Could not delete task.', deleteError);
+            setError("We couldn't delete your task. Please try again.");
             return false;
         }
         if (task.notificationId) {
             void cancelTaskReminder(task.notificationId).catch(cancelError => {
                 console.error(`Could not cancel the reminder for deleted task ${task.id}.`, cancelError);
-                setError(getErrorMessage(cancelError));
+                setError('The task was deleted, but its reminder may still go off.');
             });
         }
         requestSync();

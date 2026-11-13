@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     ScrollView,
     StyleSheet,
@@ -37,6 +37,21 @@ const TaskDetailsScreen = ({ navigation, route }: Props) => {
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
     const [actionError, setActionError] = useState('');
     const task = items.find(item => item.id === taskId);
+    const [visibleCompletedSubtasks, setVisibleCompletedSubtasks] = useState<boolean[]>([]);
+
+    useEffect(() => {
+        setVisibleCompletedSubtasks(task?.completedSubtasks ?? []);
+    }, [task?.id, task?.completedSubtasks]);
+
+    const handleToggleSubtask = (subtaskIndex: number) => {
+        if (!task) return;
+        setVisibleCompletedSubtasks(current => task.subtasks.map((_, index) => (
+            index === subtaskIndex
+                ? !(current[index] ?? false)
+                : current[index] ?? false
+        )));
+        void toggleSubtaskCompletion(task, subtaskIndex);
+    };
 
     const handleSave = async (changes: ExtractedTask): Promise<boolean> => {
         if (!task) return false;
@@ -101,7 +116,7 @@ const TaskDetailsScreen = ({ navigation, route }: Props) => {
                 {task.subtasks.length ? (
                     <View style={styles.infoCard}>
                         <AppText style={styles.sectionTitle}>
-                            Subtasks ({task.completedSubtasks.filter(Boolean).length}/{task.subtasks.length})
+                            Subtasks ({visibleCompletedSubtasks.filter(Boolean).length}/{task.subtasks.length})
                         </AppText>
                         <View style={styles.subtasks}>
                             {task.subtasks.map((subtask, index) => (
@@ -109,21 +124,21 @@ const TaskDetailsScreen = ({ navigation, route }: Props) => {
                                     <AppButton
                                         style={[
                                             styles.subtaskCheckbox,
-                                            task.completedSubtasks[index] && styles.subtaskCheckboxChecked,
+                                            visibleCompletedSubtasks[index] && styles.subtaskCheckboxChecked,
                                         ]}
                                         hitSlop={8}
-                                        onPress={() => void toggleSubtaskCompletion(task, index)}
+                                        onPress={() => handleToggleSubtask(index)}
                                         accessibilityRole="checkbox"
                                         accessibilityState={{
-                                            checked: task.completedSubtasks[index] ?? false,
+                                            checked: visibleCompletedSubtasks[index] ?? false,
                                         }}
                                         accessibilityLabel={
-                                            task.completedSubtasks[index]
+                                            visibleCompletedSubtasks[index]
                                                 ? `Mark ${subtask} as active`
                                                 : `Complete ${subtask}`
                                         }
                                     >
-                                        {task.completedSubtasks[index] ? (
+                                        {visibleCompletedSubtasks[index] ? (
                                             <FontAwesome5
                                                 name="check"
                                                 size={RS(11)}
@@ -134,7 +149,7 @@ const TaskDetailsScreen = ({ navigation, route }: Props) => {
                                     <AppText
                                         style={[
                                             styles.subtaskText,
-                                            task.completedSubtasks[index] && styles.completedSubtaskText,
+                                            visibleCompletedSubtasks[index] && styles.completedSubtaskText,
                                         ]}
                                     >
                                         {subtask}

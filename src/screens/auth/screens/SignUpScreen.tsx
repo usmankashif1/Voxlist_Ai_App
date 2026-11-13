@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Keyboard,
     StyleSheet,
     TextInput,
     View,
@@ -13,26 +14,28 @@ import { useAppDispatch, useAppSelector } from '../../../store/hooks';
 import { taskTheme } from '../../../core/theme/taskTheme';
 import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
-import BackButton from '../../../components/BackButton';
 import AuthScreenLayout from '../components/AuthScreenLayout';
 
 const SignUpScreen = () => {
     const navigation = useNavigation<NavigationProp<ParamListBase>>();
     const dispatch = useAppDispatch();
-    const { session, error, isSubmitting, notice } = useAppSelector(selectAuth);
+    const { error, isSubmitting, notice } = useAppSelector(selectAuth);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const passwordInput = useRef<React.ElementRef<typeof TextInput>>(null);
 
     const handleSignUp = async () => {
+        Keyboard.dismiss();
         dispatch(clearAuthMessages());
         const result = await dispatch(signUp({ email, password }));
-        if (result && session?.user.is_anonymous) navigation.navigate('Home');
+        if (result) navigation.navigate('Settings');
     };
 
     return (
         <AuthScreenLayout
             title="Create your account"
             subtitle="Your tasks stay on this device and sync to your account when you’re online."
+            onBack={() => navigation.goBack()}
         >
             <View style={styles.form}>
                 <TextInput
@@ -47,8 +50,12 @@ const SignUpScreen = () => {
                     textContentType="emailAddress"
                     editable={!isSubmitting}
                     accessibilityLabel="Email"
+                    onSubmitEditing={() => passwordInput.current?.focus()}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
                 />
                 <TextInput
+                    ref={passwordInput}
                     style={styles.input}
                     value={password}
                     onChangeText={setPassword}
@@ -78,11 +85,14 @@ const SignUpScreen = () => {
                         : <AppText style={styles.primaryButtonText}>Create account</AppText>}
                 </AppButton>
 
-                <BackButton
+                <AppButton
+                    style={styles.loginLink}
                     onPress={() => navigation.navigate('Login')}
                     disabled={isSubmitting}
-                    label="Back to log in"
-                />
+                    accessibilityRole="button"
+                >
+                    <AppText style={styles.loginLinkText}>Already have an account? Log in</AppText>
+                </AppButton>
             </View>
         </AuthScreenLayout>
     );
@@ -127,6 +137,16 @@ const styles = StyleSheet.create({
         color: taskTheme.colors.success,
         fontSize: RF(13),
         lineHeight: RF(19),
+    },
+    loginLink: {
+        minHeight: RH(48),
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    loginLinkText: {
+        color: taskTheme.colors.text,
+        fontSize: RF(14),
+        fontWeight: '600',
     },
 });
 
