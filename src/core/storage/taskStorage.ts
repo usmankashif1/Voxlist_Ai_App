@@ -250,6 +250,40 @@ export const updateStoredTask = async (task: Task): Promise<void> => {
     );
 };
 
+export const updateStoredTasks = async (tasks: Task[]): Promise<void> => {
+    const database = await getDatabase();
+    const updatedAt = new Date().toISOString();
+
+    await database.withTransactionAsync(async () => {
+        for (const task of tasks) {
+            const result = await database.runAsync(
+                `UPDATE tasks SET
+                    title = ?, subtasks = ?, completed_subtasks = ?, due_date = ?, due_time = ?,
+                    reminder_enabled = ?, priority = ?, date_ambiguous = ?,
+                    ambiguity_note = ?, is_completed = ?, notification_id = ?,
+                    sync_status = 'pending', updated_at = ?
+                WHERE id = ? AND is_deleted = 0`,
+                task.title,
+                JSON.stringify(task.subtasks),
+                JSON.stringify(normalizeCompletedSubtasks(task.completedSubtasks, task.subtasks)),
+                task.dueDate,
+                task.dueTime,
+                task.reminderEnabled ? 1 : 0,
+                task.priority,
+                task.dateAmbiguous ? 1 : 0,
+                task.ambiguityNote ?? null,
+                task.isCompleted ? 1 : 0,
+                task.notificationId,
+                updatedAt,
+                task.id,
+            );
+            if (result.changes !== 1) {
+                throw new Error(`Could not update task ${task.id}.`);
+            }
+        }
+    });
+};
+
 export const updateStoredTaskNotificationId = async (
     task: Task,
     notificationId: string | null,

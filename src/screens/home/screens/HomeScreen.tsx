@@ -13,11 +13,13 @@ import {
 } from 'react-native';
 import * as Network from 'expo-network';
 import { RF, RH, RS, RW } from '../../../core/utils/responsive';
-import { getTaskDateLabel } from '../../../core/utils/dateTime';
+import { getLocalDueDate, getTaskDateLabel } from '../../../core/utils/dateTime';
 import { taskTheme } from '../../../core/theme/taskTheme';
 import { getErrorMessage } from '../../../core/utils/errorMessage';
 import TaskCard from '../components/TaskCard';
 import TaskEditorModal from '../components/TaskEditorModal';
+import MoveOverdueTasksModal from '../components/MoveOverdueTasksModal';
+import ConfirmationModal from '../components/ConfirmationModal';
 import VoiceTaskReviewModal from '../components/VoiceTaskReviewModal';
 import InternetRequiredSheet from '../components/InternetRequiredSheet';
 import type { ExtractedTask, Task, TaskDateLabel, TaskSection } from '../home.types';
@@ -29,6 +31,11 @@ import AppText from '../../../components/AppText';
 import * as SecureStore from 'expo-secure-store';
 import { ensureVoiceSession } from '../../../store/authThunks';
 import { useAppDispatch } from '../../../store/hooks';
+import {
+    getVoiceUsageLimitNotice,
+    reserveVoiceRequest,
+    type VoiceUsageDecision,
+} from '../../../core/api/voiceUsageService';
 import {
     requestMicrophonePermission,
     requestNotificationPermission,
@@ -70,6 +77,7 @@ const HomeScreen = () => {
         reload,
         addTasks,
         updateTask,
+        updateTasks,
         toggleTaskCompletion,
         deleteTask,
     } = useTasks();
@@ -89,11 +97,21 @@ const HomeScreen = () => {
     const [isSavingTask, setIsSavingTask] = useState(false);
     const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
     const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+    const [voiceReservationId, setVoiceReservationId] = useState<string | null>(null);
+    const [voiceQuotaNotice, setVoiceQuotaNotice] = useState<{
+        title: string;
+        message: string;
+    } | null>(null);
     const [isPreparingVoice, setIsPreparingVoice] = useState(false);
     const [isInternetSheetOpen, setIsInternetSheetOpen] = useState(false);
     const [isOffline, setIsOffline] = useState(true);
     const [selectedCategory, setSelectedCategory] = useState<TaskDateLabel>('Today');
+    const [isSelectingOverdueTasks, setIsSelectingOverdueTasks] = useState(false);
+    const [selectedOverdueTaskIds, setSelectedOverdueTaskIds] = useState<string[]>([]);
+    const [isMoveOverdueModalOpen, setIsMoveOverdueModalOpen] = useState(false);
+    const [isMovingOverdueTasks, setIsMovingOverdueTasks] = useState(false);
     const hasStartedPermissionCheck = useRef(false);
+    const isPreparingVoiceRef = useRef(false);
 
     useEffect(() => {
         let isMounted = true;
@@ -137,6 +155,7 @@ const HomeScreen = () => {
 
                 try {
                     await requestNotificationPermission();
+                    await reload();
                 } catch (permissionError) {
                     console.error('Could not request notification permission on Home.', permissionError);
                 }
@@ -146,7 +165,7 @@ const HomeScreen = () => {
                 console.error('Could not initialize Home permission requests.', error);
             }
         })();
-    }, []);
+    }, [reload]);
 
 
 
@@ -168,6 +187,63 @@ const HomeScreen = () => {
         () => groupTasks(items.filter(task => getTaskDateLabel(task.dueDate) === selectedCategory)),
         [items, selectedCategory],
     );
+    const selectedOverdueTasks = useMemo(
+        () => items.filter(task => (
+            selectedOverdueTaskIds.includes(task.id)
+            && getTaskDateLabel(task.dueDate) === 'Overdue'
+        )),
+        [items, selectedOverdueTaskIds],
+    );
+
+    const handleCategorySelect = (category: TaskDateLabel) => {
+        setSelectedCategory(category);
+        setIsSelectingOverdueTasks(false);
+        setSelectedOverdueTaskIds([]);
+    };
+
+    const toggleOverdueTaskSelection = (taskId: string) => {
+        setSelectedOverdueTaskIds(current => current.includes(taskId)
+            ? current.filter(id => id !== taskId)
+            : [...current, taskId]);
+    };
+
+    const cancelOverdueTaskSelection = () => {
+        setIsSelectingOverdueTasks(false);
+        setSelectedOverdueTaskIds([]);
+    };
+
+    const handleMoveSelectedTasks = async (dueDate: string | null): Promise<boolean> => {
+        if (isMovingOverdueTasks) return false;
+        const selectedTasks = selectedOverdueTasks;
+        if (!selectedTasks.length) return false;
+
+        setIsMovingOverdueTasks(true);
+        try {
+            const tasksToMove = selectedTasks.map(task => ({
+                ...task,
+                dueDate,
+                dueTime: dueDate ? task.dueTime : null,
+                reminderEnabled: Boolean(
+                    dueDate
+                    && task.reminderEnabled
+                    && task.dueTime
+                    && getLocalDueDate(dueDate, task.dueTime).getTime() > Date.now(),
+                ),
+                dateAmbiguous: false,
+                ambiguityNote: undefined,
+                notificationId: null,
+            }));
+
+            if (!await updateTasks(tasksToMove)) return false;
+
+            setIsMoveOverdueModalOpen(false);
+            cancelOverdueTaskSelection();
+            return true;
+        } finally {
+            setIsMovingOverdueTasks(false);
+        }
+    };
+
     const handleSaveTask = async (changes: ExtractedTask): Promise<boolean> => {
         try {
             setIsSavingTask(true);
@@ -185,22 +261,42 @@ const HomeScreen = () => {
 
 
 
+    const reserveVoiceUse = useCallback(async (): Promise<VoiceUsageDecision | null> => {
+        if (isOffline) {
+            setIsInternetSheetOpen(true);
+            return null;
+        }
+        return reserveVoiceRequest();
+    }, [isOffline]);
+
     const handleConfirmVoiceTasks = async (tasks: ExtractedTask[]) => addTasks(tasks);
     const handleVoicePress = async () => {
         if (isOffline) {
             setIsInternetSheetOpen(true);
             return;
         }
-        if (isPreparingVoice) return;
+        if (isPreparingVoiceRef.current) return;
 
+        isPreparingVoiceRef.current = true;
         setIsPreparingVoice(true);
         try {
             await dispatch(ensureVoiceSession());
+            const decision = await reserveVoiceUse();
+            if (!decision) return;
+            if (!decision.allowed) {
+                setVoiceQuotaNotice(getVoiceUsageLimitNotice(decision));
+                return;
+            }
+            if (!decision.reservationId) {
+                throw new Error('The voice request reservation was missing.');
+            }
+            setVoiceReservationId(decision.reservationId);
             setIsVoiceModalOpen(true);
         } catch (error) {
-            console.error('Could not prepare authentication for voice input.', error);
+            console.error('Could not prepare a reserved voice request.', error);
             Alert.alert('Could not start voice input', getErrorMessage(error));
         } finally {
+            isPreparingVoiceRef.current = false;
             setIsPreparingVoice(false);
         }
     };
@@ -259,7 +355,7 @@ const HomeScreen = () => {
                         <AppButton
                             key={category}
                             style={[styles.categoryButton, isSelected && styles.selectedCategoryButton]}
-                            onPress={() => setSelectedCategory(category)}
+                            onPress={() => handleCategorySelect(category)}
                             accessibilityRole="button"
                             accessibilityState={{ selected: isSelected }}
                         >
@@ -293,7 +389,7 @@ const HomeScreen = () => {
             >
                 <SectionList
                     sections={sections}
-                    extraData={items}
+                    extraData={{ items, isSelectingOverdueTasks, selectedOverdueTaskIds }}
                     keyExtractor={task => `${task.id}-${task.isCompleted ? 'completed' : 'active'}`}
                     renderItem={({ item, section }) => (
                         <TaskCard
@@ -303,9 +399,53 @@ const HomeScreen = () => {
                             onComplete={handleCompleteTask}
                             onEdit={setEditingTask}
                             onDelete={task => void deleteTask(task)}
+                            selectionMode={isSelectingOverdueTasks}
+                            selected={selectedOverdueTaskIds.includes(item.id)}
+                            onSelect={() => toggleOverdueTaskSelection(item.id)}
                         />
                     )}
-                    renderSectionHeader={({ section }) => (
+                    renderSectionHeader={({ section }) => section.title === 'Overdue' ? (
+                        <View style={styles.overdueSectionHeader}>
+                            {isSelectingOverdueTasks ? (
+                                <>
+                                    <AppText style={styles.selectionCount}>
+                                        {selectedOverdueTasks.length} selected
+                                    </AppText>
+                                    <AppButton
+                                        style={styles.selectionCancelButton}
+                                        onPress={cancelOverdueTaskSelection}
+                                    >
+                                        <AppText style={styles.selectionCancelText}>Cancel</AppText>
+                                    </AppButton>
+                                    <AppButton
+                                        style={[
+                                            styles.selectionMoveButton,
+                                            selectedOverdueTasks.length === 0 && styles.selectionMoveDisabled,
+                                        ]}
+                                        onPress={() => setIsMoveOverdueModalOpen(true)}
+                                        disabled={selectedOverdueTasks.length === 0}
+                                    >
+                                        <AppText style={styles.selectionMoveText}>Move selected</AppText>
+                                    </AppButton>
+                                </>
+                            ) : (
+                                <View style={{justifyContent: 'space-between', flexDirection: 'row', alignItems: 'center', width: '100%'}}>
+                                    <AppText
+                                        style={[styles.sectionTitle, styles.overdueSectionTitle]}
+                                    >
+                                        {section.title}
+                                    </AppText>
+                                    <AppButton
+                                        style={styles.moveOverdueButton}
+                                        onPress={() => setIsSelectingOverdueTasks(true)}
+                                        accessibilityRole="button"
+                                    >
+                                        <AppText style={styles.moveOverdueButtonText}>Move tasks</AppText>
+                                    </AppButton>
+                                </View>
+                            )}
+                        </View>
+                    ) : (
                         <AppText style={styles.sectionTitle}>{section.title}</AppText>
                     )}
                     ListHeaderComponent={renderListHeader()}
@@ -347,7 +487,7 @@ const HomeScreen = () => {
                     : 'Create tasks by voice'}
             >
                 {isPreparingVoice
-                    ? <ActivityIndicator color="white" />
+                    ? <ActivityIndicator size={RS(30)}  color="white" />
                     : <FontAwesome5 name="microphone" size={RS(26)} color="white" />}
             </AppButton>
 
@@ -363,10 +503,30 @@ const HomeScreen = () => {
                 }}
                 onSave={handleSaveTask}
             />
+            <MoveOverdueTasksModal
+                visible={isMoveOverdueModalOpen}
+                selectedCount={selectedOverdueTasks.length}
+                moving={isMovingOverdueTasks}
+                onCancel={() => setIsMoveOverdueModalOpen(false)}
+                onMove={handleMoveSelectedTasks}
+            />
             <VoiceTaskReviewModal
+                key={voiceReservationId ?? 'voice-no-reservation'}
                 visible={isVoiceModalOpen}
+                initialReservationId={voiceReservationId}
+                onReserveVoiceRequest={reserveVoiceUse}
+                onQuotaReached={decision => {
+                    setVoiceQuotaNotice(getVoiceUsageLimitNotice(decision));
+                }}
                 onClose={() => setIsVoiceModalOpen(false)}
                 onConfirm={handleConfirmVoiceTasks}
+            />
+            <ConfirmationModal
+                visible={voiceQuotaNotice !== null}
+                title={voiceQuotaNotice?.title ?? ''}
+                message={voiceQuotaNotice?.message ?? ''}
+                confirmText="Got it"
+                onConfirm={() => setVoiceQuotaNotice(null)}
             />
             <InternetRequiredSheet
                 visible={isInternetSheetOpen}
@@ -492,6 +652,56 @@ const styles = StyleSheet.create({
     },
     selectedCategoryText: {
         color: taskTheme.colors.white,
+    },
+    overdueSectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: RW(taskTheme.spacing.sm),
+        marginTop: RH(taskTheme.spacing.lg),
+        marginBottom: RH(taskTheme.spacing.sm),
+    },
+    overdueSectionTitle: {
+        marginTop: 0,
+        marginBottom: 0,
+    },
+    moveOverdueButton: {
+        minHeight: RH(36),
+        justifyContent: 'center',
+        paddingHorizontal: RW(taskTheme.spacing.sm),
+    },
+    moveOverdueButtonText: {
+        color: taskTheme.colors.danger,
+        fontSize: RF(15),
+        fontWeight: '700',
+    },
+    selectionCount: {
+        flex: 1,
+        color: taskTheme.colors.textSecondary,
+        fontSize: RF(15),
+        fontWeight: '600',
+    },
+    selectionCancelButton: {
+        minHeight: RH(40),
+        justifyContent: 'center',
+        paddingHorizontal: RW(taskTheme.spacing.sm),
+    },
+    selectionCancelText: {
+        color: taskTheme.colors.textSecondary,
+        fontSize: RF(15),
+        fontWeight: '600',
+    },
+    selectionMoveButton: {
+        minHeight: RH(40),
+        justifyContent: 'center',
+        paddingHorizontal: RW(taskTheme.spacing.sm),
+    },
+    selectionMoveDisabled: {
+        opacity: 0.5,
+    },
+    selectionMoveText: {
+        color: taskTheme.colors.danger,
+        fontSize: RF(15),
+        fontWeight: '700',
     },
     listTitle: {
         color: taskTheme.colors.text,

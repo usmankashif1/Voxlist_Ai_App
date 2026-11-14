@@ -59,6 +59,7 @@ const logUnexpectedResponse = (value: unknown, error: Error): void => {
 export const generateTaskCandidates = async (
     transcription: string,
     currentDateTime: CurrentDateTimeContext,
+    reservationId: string,
     signal?: AbortSignal,
 ): Promise<unknown> => {
     if (!transcription.trim()) {
@@ -72,6 +73,7 @@ export const generateTaskCandidates = async (
                 action: 'extract-tasks',
                 transcription: transcription.trim(),
                 currentDateTime,
+                reservationId,
             },
             signal,
         },

@@ -6,19 +6,25 @@ import useSheetTransition from '../../../components/useSheetTransition';
 import { taskTheme } from '../../../core/theme/taskTheme';
 import { RF, RS } from '../../../core/utils/responsive';
 
-interface DeleteTaskConfirmationModalProps {
+interface ConfirmationModalProps {
     visible: boolean;
-    taskTitle: string;
-    onCancel: () => void;
+    title: string;
+    message: string;
+    confirmText: string;
+    confirmVariant?: 'danger' | 'primary';
+    onCancel?: () => void;
     onConfirm: () => void;
 }
 
-const DeleteTaskConfirmationModal = ({
+const ConfirmationModal = ({
     visible,
-    taskTitle,
+    title,
+    message,
+    confirmText,
+    confirmVariant = 'primary',
     onCancel,
     onConfirm,
-}: DeleteTaskConfirmationModalProps) => {
+}: ConfirmationModalProps) => {
     const {
         mounted,
         backdropStyle,
@@ -32,7 +38,7 @@ const DeleteTaskConfirmationModal = ({
             transparent
             animationType="none"
             onShow={startOpening}
-            onRequestClose={onCancel}
+            onRequestClose={onCancel ?? onConfirm}
         >
             <View style={styles.backdrop}>
                 <Animated.View
@@ -40,14 +46,33 @@ const DeleteTaskConfirmationModal = ({
                     style={[StyleSheet.absoluteFill, styles.dimmer, backdropStyle]}
                 />
                 <Animated.View style={[styles.card, sheetStyle]}>
-                    <AppText style={styles.title}>Delete this task?</AppText>
-                    <AppText style={styles.message}>{taskTitle}</AppText>
+                    <AppText style={styles.title}>{title}</AppText>
+                    <AppText style={styles.message}>{message}</AppText>
                     <View style={styles.actions}>
-                        <AppButton style={styles.cancelButton} onPress={onCancel}>
-                            <AppText style={styles.cancelText}>Cancel</AppText>
-                        </AppButton>
-                        <AppButton style={styles.deleteButton} onPress={onConfirm}>
-                            <AppText style={styles.deleteText}>Delete</AppText>
+                        {onCancel ? (
+                            <AppButton style={styles.cancelButton} onPress={onCancel}>
+                                <AppText style={styles.cancelText}>Cancel</AppText>
+                            </AppButton>
+                        ) : null}
+                        <AppButton
+                            style={[
+                                styles.confirmButton,
+                                confirmVariant === 'danger'
+                                    ? styles.dangerButton
+                                    : styles.primaryButton,
+                            ]}
+                            onPress={onConfirm}
+                        >
+                            <AppText
+                                style={[
+                                    styles.confirmText,
+                                    confirmVariant === 'danger'
+                                        ? styles.dangerText
+                                        : styles.primaryText,
+                                ]}
+                            >
+                                {confirmText}
+                            </AppText>
                         </AppButton>
                     </View>
                 </Animated.View>
@@ -100,18 +125,28 @@ const styles = StyleSheet.create({
         fontSize: RF(14),
         fontWeight: '600',
     },
-    deleteButton: {
+    confirmButton: {
         minHeight: RS(44),
         justifyContent: 'center',
         borderRadius: RS(taskTheme.radius.sm),
-        backgroundColor: taskTheme.colors.danger,
         paddingHorizontal: RS(taskTheme.spacing.lg),
     },
-    deleteText: {
-        color: taskTheme.colors.white,
+    dangerButton: {
+        backgroundColor: taskTheme.colors.danger,
+    },
+    primaryButton: {
+        backgroundColor: taskTheme.colors.primary,
+    },
+    confirmText: {
         fontSize: RF(14),
         fontWeight: '700',
     },
+    dangerText: {
+        color: taskTheme.colors.white,
+    },
+    primaryText: {
+        color: taskTheme.colors.white,
+    },
 });
 
-export default DeleteTaskConfirmationModal;
+export default ConfirmationModal;

@@ -1,9 +1,10 @@
 import {
     getAllScheduledNotificationsAsync,
     getExactAlarmPermissionsAsync,
+    getPermissionsAsync,
 } from 'expo-notifications';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { selectAuth } from '../../../store/slices/authSlice';
 import { useAppSelector } from '../../../store/hooks';
@@ -14,6 +15,7 @@ import {
     getStoredTasks,
     insertTasks,
     updateStoredTask,
+    updateStoredTasks,
     updateStoredSubtaskCompletion,
     updateStoredTaskNotificationId,
 } from '../../../core/storage/taskStorage';
@@ -26,6 +28,7 @@ import type { ExtractedTask, Task } from '../home.types';
 
 // Expo persists requests separately from AlarmManager, so restore alarms after Android restarts the process.
 const restoredAndroidAlarmOwners = new Set<string | null>();
+let reminderReconciliationQueue: Promise<void> = Promise.resolve();
 let startupSplashHidden = false;
 
 const hideStartupSplash = (): void => {
@@ -37,11 +40,8 @@ const hideStartupSplash = (): void => {
     });
 };
 
-const scheduleAndStoreReminder = async (
-    task: Task,
-    promptForPermissions: boolean,
-) => {
-    const scheduledReminder = await scheduleTaskReminder(task, promptForPermissions);
+const scheduleAndStoreReminder = async (task: Task) => {
+    const scheduledReminder = await scheduleTaskReminder(task);
     if (!scheduledReminder) return null;
 
     try {
@@ -72,14 +72,28 @@ interface ReminderReconciliationResult {
     error: string | null;
 }
 
-const reconcileTaskReminders = async (
+const reconcileTaskRemindersNow = async (
     tasks: Task[],
     restoreAndroidAlarms: boolean,
 ): Promise<ReminderReconciliationResult> => {
-    const scheduledNotifications = await getAllScheduledNotificationsAsync();
-    const exactAlarmGranted = (await getExactAlarmPermissionsAsync()).granted;
+    const [scheduledNotifications, notificationPermission] = await Promise.all([
+        getAllScheduledNotificationsAsync(),
+        getPermissionsAsync(),
+    ]);
+    const exactAlarmGranted = Platform.OS !== 'android'
+        || (await getExactAlarmPermissionsAsync()).granted;
     const reconciledTasks: Task[] = [];
     let reminderError: string | null = null;
+    const taskIds = new Set(tasks.map(task => task.id));
+
+    await cancelScheduledTaskReminders(
+        scheduledNotifications
+            .filter(notification => {
+                const taskId = notification.content.data?.taskId;
+                return typeof taskId === 'string' && !taskIds.has(taskId);
+            })
+            .map(notification => notification.identifier),
+    );
 
     for (const task of tasks) {
         const scheduledForTask = scheduledNotifications.filter(
@@ -124,6 +138,18 @@ const reconcileTaskReminders = async (
                 ),
         );
         if (currentNotification && !restoreAndroidAlarms) {
+            if (
+                !notificationPermission.granted
+                && !reminderError
+            ) {
+                reminderError = 'Task notifications are turned off. Enable notifications in your device settings to receive reminders.';
+            } else if (
+                Platform.OS === 'android'
+                && !exactAlarmGranted
+                && !reminderError
+            ) {
+                reminderError = 'Allow exact alarms for Voxlist Ai to improve on-time task reminders.';
+            }
             await cancelScheduledTaskReminders(
                 scheduledForTask
                     .filter(notification => notification.identifier !== currentNotification.identifier)
@@ -156,10 +182,7 @@ const reconcileTaskReminders = async (
         if (task.notificationId) await updateStoredTaskNotificationId(task, null);
 
         try {
-            const scheduledReminder = await scheduleAndStoreReminder(
-                taskWithoutReminder,
-                !restoreAndroidAlarms,
-            );
+            const scheduledReminder = await scheduleAndStoreReminder(taskWithoutReminder);
             if (!scheduledReminder) {
                 reconciledTasks.push(taskWithoutReminder);
                 continue;
@@ -169,16 +192,48 @@ const reconcileTaskReminders = async (
                 ...taskWithoutReminder,
                 notificationId: scheduledReminder.notificationId,
             });
+            if (
+                Platform.OS === 'android'
+                && !scheduledReminder.exactDelivery
+                && !reminderError
+            ) {
+                reminderError = 'Allow exact alarms for Voxlist Ai to improve on-time task reminders.';
+            }
         } catch (scheduleError) {
             console.error(`Could not schedule a reminder for task ${task.id}.`, scheduleError);
             if (!reminderError) {
-                reminderError = "We couldn't set one or more task reminders. Your tasks are saved, but might not notify you.";
+                reminderError = scheduleError instanceof Error
+                    && /notification permission was not granted/i.test(scheduleError.message)
+                    ? 'Task notifications are turned off. Enable notifications in your device settings to receive reminders.'
+                    : "We couldn't set one or more task reminders. Your tasks are saved, but might not notify you.";
             }
             reconciledTasks.push(taskWithoutReminder);
         }
     }
 
     return { tasks: reconciledTasks, error: reminderError };
+};
+
+const reconcileTaskReminders = async (
+    userId: string | null,
+): Promise<ReminderReconciliationResult> => {
+    const previousReconciliation = reminderReconciliationQueue;
+    let releaseReconciliation!: () => void;
+    reminderReconciliationQueue = new Promise<void>(resolve => {
+        releaseReconciliation = resolve;
+    });
+
+    await previousReconciliation;
+    try {
+        const restoreAndroidAlarms = Platform.OS === 'android'
+            && !restoredAndroidAlarmOwners.has(userId);
+        const latestTasks = await getStoredTasks(userId);
+        const result = await reconcileTaskRemindersNow(latestTasks, restoreAndroidAlarms);
+        if (restoreAndroidAlarms) restoredAndroidAlarmOwners.add(userId);
+        return result;
+    } finally {
+        releaseReconciliation();
+    }
 };
 
 const useTasks = () => {
@@ -214,17 +269,14 @@ const useTasks = () => {
                     hideStartupSplash();
 
                     try {
-                        const restoreAndroidAlarms = Platform.OS === 'android'
-                            && !restoredAndroidAlarmOwners.has(userId);
-                        const result = await reconcileTaskReminders(storedTasks, restoreAndroidAlarms);
+                        const result = await reconcileTaskReminders(userId);
                         if (revision !== reloadRevision.current) continue;
-                        if (restoreAndroidAlarms) restoredAndroidAlarmOwners.add(userId);
                         setError(result.error);
                         setItems(result.tasks);
                     } catch (reconciliationError) {
                         if (revision !== reloadRevision.current) continue;
                         console.error('Could not reconcile task reminders.', reconciliationError);
-                        setError(null);
+                        setError("We couldn't restore your task reminders. Your tasks are saved, but reminders may not be scheduled. Please try again.");
                     }
                 } catch (reconciliationError) {
                     if (revision !== reloadRevision.current) continue;
@@ -265,13 +317,20 @@ const useTasks = () => {
         void reload();
     }), [reload]);
 
+    useEffect(() => {
+        const subscription = AppState.addEventListener('change', state => {
+            if (state === 'active') void reload();
+        });
+        return () => subscription.remove();
+    }, [reload]);
+
     const addTasks = useCallback(async (drafts: ExtractedTask[]) => {
         setError(null);
         try {
             const createdTasks = await insertTasks(drafts, userId);
             setItems(current => [...createdTasks, ...current]);
             requestSync();
-            void reload();
+            await reload();
             return true;
         } catch (saveError) {
             console.error('Could not create task.', saveError);
@@ -307,7 +366,42 @@ const useTasks = () => {
             return false;
         }
         requestSync();
-        void reload();
+        await reload();
+        return true;
+    }, [items, invalidatePendingReload, reload, requestSync]);
+
+    const updateTasks = useCallback(async (updatedTasks: Task[]) => {
+        if (!updatedTasks.length) return true;
+        setError(null);
+
+        const previousTasks = new Map(
+            items
+                .filter(task => updatedTasks.some(updated => updated.id === task.id))
+                .map(task => [task.id, task]),
+        );
+        const normalizedTasks = updatedTasks.map<Task>(task => ({
+            ...task,
+            completedSubtasks: task.subtasks.map(
+                (_, index) => task.completedSubtasks[index] ?? false,
+            ),
+            notificationId: null,
+        }));
+        const updatedTasksById = new Map(normalizedTasks.map(task => [task.id, task]));
+
+        invalidatePendingReload();
+        setItems(current => current.map(task => updatedTasksById.get(task.id) ?? task));
+
+        try {
+            await updateStoredTasks(normalizedTasks);
+        } catch (saveError) {
+            setItems(current => current.map(task => previousTasks.get(task.id) ?? task));
+            console.error('Could not save task changes.', saveError);
+            setError("We couldn't move the selected tasks. Please try again.");
+            return false;
+        }
+
+        await reload();
+        requestSync();
         return true;
     }, [items, invalidatePendingReload, reload, requestSync]);
 
@@ -334,8 +428,8 @@ const useTasks = () => {
             return;
         }
 
+        await reload();
         requestSync();
-        void reload();
     }, [invalidatePendingReload, reload, requestSync]);
 
     const toggleSubtaskCompletion = useCallback(async (
@@ -392,14 +486,18 @@ const useTasks = () => {
             setError("We couldn't delete your task. Please try again.");
             return false;
         }
+        let cancellationError: string | null = null;
         if (task.notificationId) {
-            void cancelTaskReminder(task.notificationId).catch(cancelError => {
+            try {
+                await cancelTaskReminder(task.notificationId);
+            } catch (cancelError) {
                 console.error(`Could not cancel the reminder for deleted task ${task.id}.`, cancelError);
-                setError('The task was deleted, but its reminder may still go off.');
-            });
+                cancellationError = 'The task was deleted, but its reminder may still go off.';
+            }
         }
+        await reload();
         requestSync();
-        void reload();
+        if (cancellationError) setError(cancellationError);
         return true;
     }, [invalidatePendingReload, reload, requestSync]);
 
@@ -410,6 +508,7 @@ const useTasks = () => {
         reload,
         addTasks,
         updateTask,
+        updateTasks,
         toggleTaskCompletion,
         toggleSubtaskCompletion,
         deleteTask,

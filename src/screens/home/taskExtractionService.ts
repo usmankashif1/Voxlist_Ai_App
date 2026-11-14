@@ -5,10 +5,16 @@ import { validateExtractedTasks } from './taskValidation';
 
 export const extractTasksFromText = async (
     transcription: string,
+    reservationId: string,
     signal?: AbortSignal,
 ): Promise<ExtractedTask[]> => {
     const currentDateTime = getCurrentDateTimeContext();
-    const candidates = await generateTaskCandidates(transcription, currentDateTime, signal);
+    const candidates = await generateTaskCandidates(
+        transcription,
+        currentDateTime,
+        reservationId,
+        signal,
+    );
     const tasks = validateExtractedTasks(candidates);
 
     if (tasks.length === 0) {

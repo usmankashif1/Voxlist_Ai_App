@@ -12,7 +12,7 @@ import AppText from '../../../components/AppText';
 import BackButton from '../../../components/BackButton';
 import { taskTheme } from '../../../core/theme/taskTheme';
 import { RF, RH, RS, RW } from '../../../core/utils/responsive';
-import DeleteTaskConfirmationModal from '../components/DeleteTaskConfirmationModal';
+import ConfirmationModal from '../components/ConfirmationModal';
 import TaskEditorModal from '../components/TaskEditorModal';
 import useTasks from '../hooks/useTasks';
 import type { ExtractedTask } from '../home.types';
@@ -208,9 +208,12 @@ const TaskDetailsScreen = ({ navigation, route }: Props) => {
                 }}
                 onSave={handleSave}
             />
-            <DeleteTaskConfirmationModal
+            <ConfirmationModal
                 visible={isConfirmingDelete}
-                taskTitle={task.title}
+                title="Delete this task?"
+                message={task.title}
+                confirmText="Delete"
+                confirmVariant="danger"
                 onCancel={() => setIsConfirmingDelete(false)}
                 onConfirm={() => void handleConfirmDelete()}
             />

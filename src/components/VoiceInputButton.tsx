@@ -19,7 +19,12 @@ export interface VoiceInputHandle {
 }
 
 interface VoiceInputProps {
-    onTranscriptionComplete: (text: string, signal: AbortSignal) => void | Promise<void>;
+    onPrepareRecording: () => Promise<string | null>;
+    onTranscriptionComplete: (
+        text: string,
+        signal: AbortSignal,
+        reservationId: string,
+    ) => void | Promise<void>;
     onError: (message: string) => void;
     onProcessingChange: (processing: boolean) => void;
     onRecordingChange?: (recording: boolean) => void;
@@ -31,6 +36,7 @@ interface VoiceInputProps {
 
 export const VoiceInputButton = forwardRef<VoiceInputHandle, VoiceInputProps>(({
     onTranscriptionComplete,
+    onPrepareRecording,
     onError,
     onProcessingChange,
     onRecordingChange,
@@ -45,14 +51,21 @@ export const VoiceInputButton = forwardRef<VoiceInputHandle, VoiceInputProps>(({
     const hasAutoStarted = useRef(false);
     const cancelled = useRef(false);
     const recording = useRef(false);
+    const starting = useRef(false);
+    const activeReservationId = useRef<string | null>(null);
     const startOperation = useRef<Promise<void> | null>(null);
     const abortController = useRef<AbortController | null>(null);
 
     const startRecording = useCallback(async () => {
-        if (disabled) return;
+        if (disabled || starting.current || recording.current) return;
+        starting.current = true;
         cancelled.current = false;
         onStartingChange?.(true);
         try {
+            const reservationId = await onPrepareRecording();
+            if (cancelled.current || !reservationId) return;
+            activeReservationId.current = reservationId;
+
             const permissionGranted = await requestMicrophonePermission(true);
             if (cancelled.current) return;
             if (!permissionGranted) {
@@ -79,9 +92,17 @@ export const VoiceInputButton = forwardRef<VoiceInputHandle, VoiceInputProps>(({
                 );
             }
         } finally {
+            starting.current = false;
             onStartingChange?.(false);
         }
-    }, [audioRecorder, disabled, onError, onRecordingChange, onStartingChange]);
+    }, [
+        audioRecorder,
+        disabled,
+        onError,
+        onPrepareRecording,
+        onRecordingChange,
+        onStartingChange,
+    ]);
 
     const beginRecording = useCallback(() => {
         const operation = startRecording();
@@ -129,12 +150,21 @@ export const VoiceInputButton = forwardRef<VoiceInputHandle, VoiceInputProps>(({
             if (!recordingUri) {
                 throw new Error('The recording is empty. Please try again.');
             }
+            const reservationId = activeReservationId.current;
+            if (!reservationId) {
+                throw new Error('The voice request reservation is unavailable. Please try again.');
+            }
             const transcribedText = await transcribeAudioWithGroq(
                 recordingUri,
+                reservationId,
                 controller.signal,
             );
             if (!controller.signal.aborted) {
-                await onTranscriptionComplete(transcribedText, controller.signal);
+                await onTranscriptionComplete(
+                    transcribedText,
+                    controller.signal,
+                    reservationId,
+                );
             }
         } catch (error) {
             if (!controller.signal.aborted) {

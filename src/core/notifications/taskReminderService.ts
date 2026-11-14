@@ -1,4 +1,5 @@
 import {
+    AndroidNotificationPriority,
     cancelScheduledNotificationAsync,
     getExactAlarmPermissionsAsync,
     getPermissionsAsync,
@@ -11,8 +12,6 @@ import type { Task } from '../../screens/home/home.types';
 import {
     ANDROID_CHANNEL_ID,
     prepareNotificationChannel,
-    requestExactAlarmPermission,
-    requestNotificationPermission,
 } from '../permissions/permissionService';
 
 export interface ScheduledTaskReminder {
@@ -22,7 +21,6 @@ export interface ScheduledTaskReminder {
 
 export const scheduleTaskReminder = async (
     task: Task,
-    promptForPermissions = true,
 ): Promise<ScheduledTaskReminder | null> => {
 
     if (!task.reminderEnabled || !task.dueDate || !task.dueTime) {
@@ -36,28 +34,24 @@ export const scheduleTaskReminder = async (
     }
 
 
-    if (Platform.OS === 'android' && !promptForPermissions) {
-        await prepareNotificationChannel();
-    }
+    if (Platform.OS === 'android') await prepareNotificationChannel();
 
-
-    const notificationsAllowed = promptForPermissions
-        ? await requestNotificationPermission(true)
-        : (await getPermissionsAsync()).granted;
+    const notificationsAllowed = (await getPermissionsAsync()).granted;
     if (!notificationsAllowed) {
         throw new Error('Notification permission was not granted. Enable it in system settings to receive reminders.');
     }
 
-
-    const exactAlarmGranted = promptForPermissions
-        ? await requestExactAlarmPermission()
-        : (await getExactAlarmPermissionsAsync()).granted;
+    const exactAlarmGranted = Platform.OS !== 'android'
+        || (await getExactAlarmPermissionsAsync()).granted;
     const body = task.subtasks[0] || 'Your task is due now.';
     const notificationId = await scheduleNotificationAsync({
         content: {
             title: task.title,
             body,
             sound: 'default',
+            ...(Platform.OS === 'android'
+                ? { priority: AndroidNotificationPriority.HIGH }
+                : {}),
             data: {
                 taskId: task.id,
                 dueAt: dueAt.toISOString(),
@@ -72,8 +66,8 @@ export const scheduleTaskReminder = async (
             ...(Platform.OS === 'android'
                 ? {
                     channelId: ANDROID_CHANNEL_ID,
-                    // Expo uses setExactAndAllowWhileIdle when exact access exists; avoid alarm-clock UX for task reminders.
-                    delivery: 'bestEffort' as const,
+                    // Alarm-clock delivery avoids Doze deferrals when exact-alarm access is granted.
+                    delivery: 'alarmClock' as const,
                 }
                 : {}),
         },

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
     Animated,
     KeyboardAvoidingView,
@@ -23,6 +23,10 @@ import useSheetTransition from '../../../components/useSheetTransition';
 import type { ExtractedTask, Task } from '../home.types';
 import { validateExtractedTasks } from '../taskValidation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+    requestExactAlarmPermission,
+    requestNotificationPermission,
+} from '../../../core/permissions/permissionService';
 
 interface TaskEditorModalProps {
     task: Task | null;
@@ -93,6 +97,8 @@ const TaskEditorModal = ({
     );
     const [error, setError] = useState('');
     const [activePicker, setActivePicker] = useState<PickerMode | null>(null);
+    const [checkingReminderPermissions, setCheckingReminderPermissions] = useState(false);
+    const reminderPermissionCheckInProgress = useRef(false);
 
     const handlePickerChange = (_event: DateTimePickerChangeEvent, selectedDate: Date) => {
         if (activePicker === 'date') {
@@ -122,7 +128,39 @@ const TaskEditorModal = ({
         setActivePicker(current => current === mode ? null : mode);
     };
 
+    const handleReminderToggle = (enabled: boolean) => {
+        if (reminderPermissionCheckInProgress.current) return;
+        setReminderEnabled(enabled);
+        if (!enabled) return;
+
+        reminderPermissionCheckInProgress.current = true;
+        setCheckingReminderPermissions(true);
+        void (async () => {
+            try {
+                if (!await requestNotificationPermission(true)) {
+                    setError('Allow notifications to receive task reminders.');
+                    return;
+                }
+                if (Platform.OS === 'android' && !await requestExactAlarmPermission()) {
+                    setError('Allow exact alarms for the most reliable reminder delivery.');
+                    return;
+                }
+                setError('');
+            } catch (permissionError) {
+                console.error('Could not check task reminder permissions.', permissionError);
+                setError('Could not check reminder permissions. Your reminder may be delayed.');
+            } finally {
+                reminderPermissionCheckInProgress.current = false;
+                setCheckingReminderPermissions(false);
+            }
+        })();
+    };
+
     const handleSave = async () => {
+        if (reminderPermissionCheckInProgress.current) {
+            setError('Wait for the reminder permission check to finish, then save again.');
+            return;
+        }
         try {
             const [validatedTask] = validateExtractedTasks([{
                 title,
@@ -292,7 +330,7 @@ const TaskEditorModal = ({
                                 <AppText style={styles.label}>Reminder</AppText>
                                 <AnimatedToggle
                                     value={reminderEnabled}
-                                    onValueChange={setReminderEnabled}
+                                    onValueChange={handleReminderToggle}
                                     accessibilityLabel="Enable task reminder"
                                 />
                             </View>
@@ -309,11 +347,16 @@ const TaskEditorModal = ({
                                 <AppText style={styles.cancelText}>Cancel</AppText>
                             </AppButton>
                             <AppButton
-                                style={[styles.saveButton, saving && styles.disabledButton]}
+                                style={[
+                                    styles.saveButton,
+                                    (saving || checkingReminderPermissions) && styles.disabledButton,
+                                ]}
                                 onPress={handleSave}
-                                disabled={saving}
+                                disabled={saving || checkingReminderPermissions}
                             >
-                                <AppText style={styles.saveText}>{saving ? 'Saving…' : 'Save task'}</AppText>
+                                <AppText style={styles.saveText}>
+                                    {saving ? 'Saving…' : checkingReminderPermissions ? 'Checking reminder…' : 'Save task'}
+                                </AppText>
                             </AppButton>
                         </View>
                         </ScrollView>

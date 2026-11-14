@@ -18,12 +18,17 @@ import { extractTasksFromText } from '../taskExtractionService';
 import type { ExtractedTask } from '../home.types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatTime12Hour } from '../../../core/utils/dateTime';
+import { getErrorMessage } from '../../../core/utils/errorMessage';
+import type { VoiceUsageDecision } from '../../../core/api/voiceUsageService';
 import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
 import useSheetTransition from '../../../components/useSheetTransition';
 
 interface VoiceTaskReviewModalProps {
     visible: boolean;
+    initialReservationId: string | null;
+    onReserveVoiceRequest: () => Promise<VoiceUsageDecision | null>;
+    onQuotaReached: (decision: VoiceUsageDecision) => void;
     onClose: () => void;
     onConfirm: (tasks: ExtractedTask[]) => Promise<boolean>;
 }
@@ -31,6 +36,9 @@ interface VoiceTaskReviewModalProps {
 
 const VoiceTaskReviewModal = ({
     visible,
+    initialReservationId,
+    onReserveVoiceRequest,
+    onQuotaReached,
     onClose,
     onConfirm,
 }: VoiceTaskReviewModalProps) => {
@@ -57,6 +65,7 @@ const VoiceTaskReviewModal = ({
     const [manualStartRequired, setManualStartRequired] = useState(false);
     const busy = isStarting || isRecording || isProcessing || isSaving;
     const voiceInput = useRef<VoiceInputHandle>(null);
+    const initialReservation = useRef(initialReservationId);
     const isClosing = useRef(false);
     const [waveValues] = useState(
         () => Array.from({ length: 7 }, () => new Animated.Value(0.25)),
@@ -100,9 +109,41 @@ const VoiceTaskReviewModal = ({
 
 
 
-    const handleTranscription = async (transcription: string, signal: AbortSignal) => {
+    const prepareVoiceRecording = async (): Promise<string | null> => {
+        if (initialReservation.current) {
+            const reservationId = initialReservation.current;
+            initialReservation.current = null;
+            return reservationId;
+        }
+
+        try {
+            const decision = await onReserveVoiceRequest();
+            if (!decision) return null;
+            if (!decision.allowed) {
+                onQuotaReached(decision);
+                return null;
+            }
+            if (!decision.reservationId) {
+                throw new Error('The voice request reservation was missing.');
+            }
+            return decision.reservationId;
+        } catch (reservationError) {
+            setError(getErrorMessage(reservationError));
+            return null;
+        }
+    };
+
+    const handleTranscription = async (
+        transcription: string,
+        signal: AbortSignal,
+        reservationId: string,
+    ) => {
         setError('');
-        const extractedTasks = await extractTasksFromText(transcription, signal);
+        const extractedTasks = await extractTasksFromText(
+            transcription,
+            reservationId,
+            signal,
+        );
         if (!signal.aborted) setTasks(extractedTasks);
     };
 
@@ -136,11 +177,19 @@ const VoiceTaskReviewModal = ({
 
     const handleVoiceError = (message: string) => {
         console.error('Could not process voice input.', message);
-        if (/HTTP 503|providerStatus["'\s:]+503|high demand|high traffic/i.test(message)) {
-            setError('The AI is experiencing high traffic right now. Please try again shortly.');
+        if (/AI request limits could not be verified|Could not verify voice request limits/i.test(message)) {
+            setError('Could not verify voice request limits. Please try again shortly.');
             return;
         }
-        const isUsageLimit = /HTTP 429|providerStatus["'\s:]+429|RESOURCE_EXHAUSTED|rate.?limit|quota exceeded|daily_(user|global)|per_minute/i
+        if (/no actionable tasks? (?:were )?found/i.test(message)) {
+            setError('No actionable tasks found. Try again with a clearer note describing what you need to do.');
+            return;
+        }
+        if (/HTTP (?:429|503)|providerStatus["'\s:]+(?:429|503)|high demand|high traffic|AI is busy|temporarily unavailable|too many requests|RESOURCE_EXHAUSTED|rate.?limit/i.test(message)) {
+            setError('The AI is busy right now due to high demand. Please try again in a moment.');
+            return;
+        }
+        const isUsageLimit = /AI usage limit reached|quota exceeded|daily_(user|global)|per_minute/i
             .test(message);
         setError(isUsageLimit
             ? 'AI usage limit reached. Please try again later.'
@@ -299,6 +348,7 @@ const VoiceTaskReviewModal = ({
                                 <VoiceInputButton
                                     ref={voiceInput}
                                     key={recordingAttempt}
+                                    onPrepareRecording={prepareVoiceRecording}
                                     onTranscriptionComplete={handleTranscription}
                                     onError={handleVoiceError}
                                     onProcessingChange={setIsProcessing}

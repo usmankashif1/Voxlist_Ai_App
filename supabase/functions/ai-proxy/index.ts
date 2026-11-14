@@ -69,6 +69,22 @@ interface TaskRequest {
     action: 'extract-tasks';
     transcription: string;
     currentDateTime: DateTimeContext;
+    reservationId: string;
+}
+
+type VoiceUsageReason = 'daily_global' | 'daily_user' | 'per_minute';
+type VoiceUsageStep = 'transcription' | 'extraction';
+
+interface VoiceUsageDecision {
+    allowed: boolean;
+    reason: VoiceUsageReason | null;
+    reservationId: string | null;
+    dailyCount: number;
+    dailyLimit: number;
+    minuteCount: number;
+    minuteLimit: number;
+    globalCount: number;
+    globalLimit: number;
 }
 
 const jsonResponse = (body: unknown, status = 200): Response => new Response(
@@ -91,6 +107,37 @@ const withRequestId = (response: Response, requestId: string): Response => {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null;
+
+const isUuid = (value: unknown): value is string =>
+    typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+const isVoiceUsageReason = (value: unknown): value is VoiceUsageReason =>
+    value === 'daily_global' || value === 'daily_user' || value === 'per_minute';
+
+const isVoiceUsageDecision = (value: unknown): value is VoiceUsageDecision =>
+    isRecord(value)
+    && typeof value.allowed === 'boolean'
+    && (value.reason === null || isVoiceUsageReason(value.reason))
+    && (value.reservationId === null || isUuid(value.reservationId))
+    && typeof value.dailyCount === 'number'
+    && Number.isInteger(value.dailyCount)
+    && typeof value.dailyLimit === 'number'
+    && Number.isInteger(value.dailyLimit)
+    && typeof value.minuteCount === 'number'
+    && Number.isInteger(value.minuteCount)
+    && typeof value.minuteLimit === 'number'
+    && Number.isInteger(value.minuteLimit)
+    && typeof value.globalCount === 'number'
+    && Number.isInteger(value.globalCount)
+    && typeof value.globalLimit === 'number'
+    && Number.isInteger(value.globalLimit)
+    && (value.allowed
+        ? isUuid(value.reservationId) && value.reason === null
+        : value.reservationId === null && isVoiceUsageReason(value.reason));
+
+const isVoiceReservationRequest = (value: unknown): boolean =>
+    isRecord(value) && value.action === 'reserve-voice-request';
 
 const readBodyWithinLimit = async (
     request: Request,
@@ -136,7 +183,8 @@ const isTaskRequest = (value: unknown): value is TaskRequest => {
         && dateTime.date.length <= 10
         && typeof dateTime.time === 'string'
         && dateTime.time.length <= 8
-        && typeof dateTime.timeZone === 'string';
+        && typeof dateTime.timeZone === 'string'
+        && isUuid(value.reservationId);
 };
 
 const parseProviderResponse = async (
@@ -228,32 +276,67 @@ const logInvalidGeminiResponse = (body: unknown, requestId: string): void => {
     });
 };
 
-const enforceUsageLimits = async (
+const reserveVoiceUsage = async (
     supabase: SupabaseClient,
     userId: string,
     isGuest: boolean,
-): Promise<Response | null> => {
-    const { data, error } = await supabase.rpc('consume_ai_request', {
+): Promise<Response> => {
+    const { data, error } = await supabase.rpc('reserve_ai_voice_request', {
         p_user_id: userId,
         p_is_guest: isGuest,
     });
     if (error) {
-        console.error('AI usage limit check failed:', error);
-        return jsonResponse({ error: { message: 'Could not verify AI request limits.' } }, 503);
+        console.error('Voice usage reservation failed:', error);
+        return jsonResponse({
+            error: {
+                code: 'VOICE_USAGE_RESERVATION_FAILED',
+                message: 'Could not reserve a voice request.',
+            },
+        }, 503);
     }
 
-    if (!isRecord(data) || typeof data.allowed !== 'boolean') {
-        console.error('AI usage limit check returned an invalid response.');
-        return jsonResponse({ error: { message: 'Could not verify AI request limits.' } }, 503);
+    if (!isVoiceUsageDecision(data)) {
+        console.error('Voice usage reservation returned an invalid response.');
+        return jsonResponse({
+            error: {
+                code: 'VOICE_USAGE_RESERVATION_FAILED',
+                message: 'Could not reserve a voice request.',
+            },
+        }, 503);
     }
 
-    if (!data.allowed) {
-        const message = data.reason === 'daily_global'
-            ? 'The app has reached its daily AI request limit. Please try again tomorrow.'
-            : data.reason === 'daily_user'
-                ? 'You have reached your daily AI request limit. Please try again tomorrow.'
-                : 'You are sending requests too quickly. Please wait a minute and try again.';
-        return jsonResponse({ error: { message } }, 429);
+    return jsonResponse(data);
+};
+
+const claimVoiceStep = async (
+    supabase: SupabaseClient,
+    userId: string,
+    reservationId: string,
+    step: VoiceUsageStep,
+): Promise<Response | null> => {
+    const { data, error } = await supabase.rpc('claim_ai_voice_step', {
+        p_user_id: userId,
+        p_reservation_id: reservationId,
+        p_step: step,
+    });
+
+    if (error) {
+        console.error('Voice reservation validation failed:', error);
+        return jsonResponse({
+            error: {
+                code: 'VOICE_RESERVATION_CHECK_FAILED',
+                message: 'Could not verify the voice request reservation.',
+            },
+        }, 503);
+    }
+
+    if (data !== true) {
+        return jsonResponse({
+            error: {
+                code: 'VOICE_RESERVATION_INVALID',
+                message: 'This voice request is no longer available. Start a new voice request and try again.',
+            },
+        }, 403);
     }
 
     return null;
@@ -263,15 +346,19 @@ const extractTasks = async (
     request: TaskRequest,
     supabase: SupabaseClient,
     userId: string,
-    isGuest: boolean,
     signal: AbortSignal,
     requestId: string,
 ): Promise<Response> => {
     const apiKey = Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) return jsonResponse({ error: { message: 'Gemini is not configured.' } }, 500);
 
-    // const limitResponse = await enforceUsageLimits(supabase, userId, isGuest);
-    // if (limitResponse) return limitResponse;
+    const reservationResponse = await claimVoiceStep(
+        supabase,
+        userId,
+        request.reservationId,
+        'extraction',
+    );
+    if (reservationResponse) return reservationResponse;
 
     const response = await fetch(GEMINI_ENDPOINT, {
         method: 'POST',
@@ -362,7 +449,6 @@ const transcribeAudio = async (
     request: Request,
     supabase: SupabaseClient,
     userId: string,
-    isGuest: boolean,
     requestId: string,
 ): Promise<Response> => {
     const apiKey = Deno.env.get('GROQ_API_KEY');
@@ -397,8 +483,24 @@ const transcribeAudio = async (
     if (audioFile.size > MAX_AUDIO_BYTES) {
         return jsonResponse({ error: { message: 'The recording exceeds the 25 MB limit.' } }, 413);
     }
-    // const limitResponse = await enforceUsageLimits(supabase, userId, isGuest);
-    // if (limitResponse) return limitResponse;
+
+    const reservationId = formData.get('reservationId');
+    if (!isUuid(reservationId)) {
+        return jsonResponse({
+            error: {
+                code: 'VOICE_RESERVATION_REQUIRED',
+                message: 'A valid voice request reservation is required.',
+            },
+        }, 403);
+    }
+
+    const reservationResponse = await claimVoiceStep(
+        supabase,
+        userId,
+        reservationId,
+        'transcription',
+    );
+    if (reservationResponse) return reservationResponse;
 
     const providerForm = new FormData();
     providerForm.append('file', audioFile, audioFile.name || 'recording.m4a');
@@ -501,7 +603,6 @@ export default {
                     request,
                     context.supabaseAdmin,
                     userId,
-                    isGuest,
                     requestId,
                 ));
             }
@@ -531,6 +632,15 @@ export default {
                     code: 'INVALID_JSON',
                 } }, 400));
             }
+
+            if (isVoiceReservationRequest(body)) {
+                return complete(await reserveVoiceUsage(
+                    context.supabaseAdmin,
+                    userId,
+                    isGuest,
+                ));
+            }
+
             if (!isTaskRequest(body)) {
                 return complete(jsonResponse({ error: {
                     message: 'The task extraction request is invalid or missing required fields.',
@@ -542,7 +652,6 @@ export default {
                 body,
                 context.supabaseAdmin,
                 userId,
-                isGuest,
                 request.signal,
                 requestId,
             ));

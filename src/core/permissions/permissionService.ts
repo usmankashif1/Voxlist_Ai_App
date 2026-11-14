@@ -10,7 +10,7 @@ import { AudioModule } from 'expo-audio';
 import { Alert, Linking, Platform } from 'react-native';
 import type { PermissionResponse } from 'expo';
 
-export const ANDROID_CHANNEL_ID = 'task-reminders-v3';
+export const ANDROID_CHANNEL_ID = 'task-reminders-v4';
 const pendingRequests = new Map<string, Promise<PermissionResponse>>();
 let exactAlarmPromptedThisSession = false;
 
@@ -76,6 +76,8 @@ export const prepareNotificationChannel = async (): Promise<void> => {
     await setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
         name: 'Task reminders',
         importance: AndroidImportance.HIGH,
+        enableVibrate: true,
+        vibrationPattern: [0, 250, 250, 250],
     });
 };
 
@@ -84,10 +86,17 @@ export const requestExactAlarmPermission = async (): Promise<boolean> => {
 
     const currentPermission = await getExactAlarmPermissionsAsync();
     if (currentPermission.granted) return true;
-    if (!currentPermission.canAskAgain || exactAlarmPromptedThisSession) return false;
+    if (!currentPermission.canAskAgain) {
+        showSettingsAlert('Exact alarms');
+        return false;
+    }
+    if (exactAlarmPromptedThisSession) return false;
 
     exactAlarmPromptedThisSession = true;
     const requestedPermission = await requestExactAlarmPermissionsAsync();
+    if (!requestedPermission.granted) {
+        showSettingsAlert('Exact alarms');
+    }
     return requestedPermission.granted;
 };
 

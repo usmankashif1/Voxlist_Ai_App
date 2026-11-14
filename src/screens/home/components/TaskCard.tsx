@@ -7,7 +7,7 @@ import { taskTheme } from '../../../core/theme/taskTheme';
 import { formatTime12Hour, formatUpcomingDate } from '../../../core/utils/dateTime';
 import { RF, RS } from '../../../core/utils/responsive';
 import type { Task } from '../home.types';
-import DeleteTaskConfirmationModal from './DeleteTaskConfirmationModal';
+import ConfirmationModal from './ConfirmationModal';
 
 interface TaskCardProps {
     task: Task;
@@ -16,6 +16,9 @@ interface TaskCardProps {
     onComplete: (task: Task) => void;
     onEdit: (task: Task) => void;
     onDelete: (task: Task) => void;
+    selectionMode?: boolean;
+    selected?: boolean;
+    onSelect?: () => void;
 }
 
 const TaskCard = ({
@@ -25,6 +28,9 @@ const TaskCard = ({
     onComplete,
     onEdit,
     onDelete,
+    selectionMode = false,
+    selected = false,
+    onSelect,
 }: TaskCardProps) => {
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
     const displayDateLabel = dateLabel === 'Upcoming' && task.dueDate
@@ -32,16 +38,24 @@ const TaskCard = ({
         : dateLabel;
 
     return (
-        <View style={styles.card}>
+        <View style={[styles.card, selectionMode && selected && styles.selectedCard]}>
             <AppButton
-                style={[styles.checkbox, task.isCompleted && styles.checkboxCompleted]}
+                style={[
+                    styles.checkbox,
+                    selectionMode ? selected && styles.checkboxCompleted : task.isCompleted && styles.checkboxCompleted,
+                ]}
                 hitSlop={10}
-                onPress={() => onComplete(task)}
+                onPress={() => {
+                    if (selectionMode) onSelect?.();
+                    else onComplete(task);
+                }}
                 accessibilityRole="checkbox"
-                accessibilityState={{ checked: task.isCompleted }}
-                accessibilityLabel={task.isCompleted ? 'Mark task active' : 'Complete task'}
+                accessibilityState={{ checked: selectionMode ? selected : task.isCompleted }}
+                accessibilityLabel={selectionMode
+                    ? `${selected ? 'Deselect' : 'Select'} task to move: ${task.title}`
+                    : task.isCompleted ? 'Mark task active' : 'Complete task'}
             >
-                {task.isCompleted ? (
+                {(selectionMode ? selected : task.isCompleted) ? (
                     <FontAwesome5
                         name="check"
                         size={RS(12)}
@@ -52,9 +66,15 @@ const TaskCard = ({
             <View style={styles.details}>
                 <AppButton
                     style={styles.summary}
-                    onPress={() => onPress(task)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`View task: ${task.title}`}
+                    onPress={() => {
+                        if (selectionMode) onSelect?.();
+                        else onPress(task);
+                    }}
+                    accessibilityRole={selectionMode ? 'checkbox' : 'button'}
+                    accessibilityState={selectionMode ? { checked: selected } : undefined}
+                    accessibilityLabel={selectionMode
+                        ? `${selected ? 'Deselect' : 'Select'} task to move: ${task.title}`
+                        : `View task: ${task.title}`}
                 >
                     <AppText style={[styles.title, task.isCompleted && styles.completedTitle]}>
                         {task.title}
@@ -85,9 +105,12 @@ const TaskCard = ({
                 */}
             </View>
 
-            <DeleteTaskConfirmationModal
+            <ConfirmationModal
                 visible={isConfirmingDelete}
-                taskTitle={task.title}
+                title="Delete this task?"
+                message={task.title}
+                confirmText="Delete"
+                confirmVariant="danger"
                 onCancel={() => setIsConfirmingDelete(false)}
                 onConfirm={() => {
                     setIsConfirmingDelete(false);
@@ -108,6 +131,9 @@ const styles = StyleSheet.create({
         borderRadius: RS(taskTheme.radius.md),
         padding: RS(taskTheme.spacing.lg),
         marginBottom: RS(taskTheme.spacing.sm),
+    },
+    selectedCard: {
+        borderColor: taskTheme.colors.primary,
     },
     checkbox: {
         width: RS(24),

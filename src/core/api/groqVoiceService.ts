@@ -11,10 +11,12 @@ interface TranscriptionResponse {
 
 export const transcribeAudioWithGroq = async (
     audioUri: string,
+    reservationId: string,
     signal?: AbortSignal,
 ): Promise<string> => {
     const formData = new FormData();
     formData.append('action', 'transcribe-audio');
+    formData.append('reservationId', reservationId);
     formData.append('file', new File(audioUri), 'recording.m4a');
 
     const { data, error } = await getSupabaseClient().functions.invoke<TranscriptionResponse>(

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { useNavigation, type NavigationProp, type ParamListBase } from '@react-navigation/native';
 import { RF, RH, RS, RW } from '../../../core/utils/responsive';
@@ -6,6 +6,7 @@ import { taskTheme } from '../../../core/theme/taskTheme';
 import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
 import BackButton from '../../../components/BackButton';
+import ConfirmationModal from '../../home/components/ConfirmationModal';
 import { deleteAccount, signOut } from '../../../store/authThunks';
 import { selectAuth } from '../../../store/slices/authSlice';
 import { useAppDispatch, useAppSelector } from '../../../store/hooks';
@@ -16,29 +17,27 @@ const ProfileScreen = () => {
     const dispatch = useAppDispatch();
     const { session, error, isSubmitting } = useAppSelector(selectAuth);
     const isGuest = session?.user.is_anonymous === true;
+    const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+    const isDeletingAccount = useRef(false);
 
     const handleSignOut = () => {
         dispatch(signOut());
     };
 
-    const handleDeleteAccount = () => {
-        Alert.alert(
-            'Delete your account?',
-            'This permanently removes your account, synced tasks, and access to the app.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: async () => {
-                        const wasDeleted = await dispatch(deleteAccount());
-                        if (wasDeleted) {
-                            Alert.alert('Account deleted', 'Your account has been removed successfully.');
-                        }
-                    },
-                },
-            ],
-        );
+    const handleDeleteAccount = () => setIsConfirmingDelete(true);
+
+    const confirmDeleteAccount = async () => {
+        if (isDeletingAccount.current) return;
+        isDeletingAccount.current = true;
+        setIsConfirmingDelete(false);
+        try {
+            const wasDeleted = await dispatch(deleteAccount());
+            if (wasDeleted) {
+                Alert.alert('Account deleted', 'Your account has been removed successfully.');
+            }
+        } finally {
+            isDeletingAccount.current = false;
+        }
     };
 
     return (
@@ -137,6 +136,15 @@ const ProfileScreen = () => {
                     </>
                 )}
             </View>
+            <ConfirmationModal
+                visible={isConfirmingDelete}
+                title="Delete your account?"
+                message="This permanently removes your account, synced tasks, and access to the app."
+                confirmText="Delete"
+                confirmVariant="danger"
+                onCancel={() => setIsConfirmingDelete(false)}
+                onConfirm={() => void confirmDeleteAccount()}
+            />
         </SafeAreaView>
     );
 };

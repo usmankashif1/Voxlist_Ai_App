@@ -48,6 +48,17 @@ const getProviderStatus = (body: string): number | null => {
     }
 };
 
+const getResponseErrorCode = (body: string): string | null => {
+    try {
+        const parsed: unknown = JSON.parse(body);
+        if (!isRecord(parsed)) return null;
+        const error = isRecord(parsed.error) ? parsed.error : parsed;
+        return typeof error.code === 'string' ? error.code : null;
+    } catch {
+        return null;
+    }
+};
+
 const serializeContext = (context: unknown): unknown => {
     if (context instanceof Error) {
         return {
@@ -99,23 +110,46 @@ export const getFunctionErrorMessage = async (
     const requestId = getResponseRequestId(response);
     const gatewayCode = response.headers?.get('x-sb-error-code') ?? null;
     const providerStatus = getProviderStatus(rawBody);
+    const responseErrorCode = getResponseErrorCode(rawBody);
 
-    if (response.status === 503 || providerStatus === 503) {
+    if (responseErrorCode === 'AI_USAGE_LIMIT_CHECK_FAILED') {
+        console.error('[Voice AI] AI request limits could not be verified.', {
+            status: response.status ?? null,
+            requestId,
+        });
+        return 'AI request limits could not be verified. Please try again shortly.';
+    }
+
+    if (
+        responseErrorCode === 'VOICE_USAGE_RESERVATION_FAILED'
+        || responseErrorCode === 'VOICE_RESERVATION_CHECK_FAILED'
+    ) {
+        console.error('[Voice AI] The voice request reservation could not be verified.', {
+            status: response.status ?? null,
+            requestId,
+        });
+        return 'Could not verify voice request limits. Please try again shortly.';
+    }
+
+    if (
+        responseErrorCode === 'VOICE_RESERVATION_INVALID'
+        || responseErrorCode === 'VOICE_RESERVATION_REQUIRED'
+    ) {
+        return 'This voice request has expired or was already used. Please start a new one.';
+    }
+
+    if (
+        response.status === 429
+        || response.status === 503
+        || providerStatus === 429
+        || providerStatus === 503
+    ) {
         console.warn('[Voice AI] AI provider is temporarily unavailable.', {
             status: response.status ?? null,
             providerStatus,
             requestId,
         });
-        return 'The AI is experiencing high traffic right now. Please try again shortly.';
-    }
-
-    if (response.status === 429 || providerStatus === 429) {
-        console.warn('[Voice AI] AI request limit reached.', {
-            status: response.status ?? null,
-            providerStatus,
-            requestId,
-        });
-        return 'AI usage limit reached. Please try again later.';
+        return 'The AI is busy right now due to high demand. Please try again in a moment.';
     }
 
     console.error('[Voice AI] Supabase Edge Function returned an HTTP error.', {
