@@ -1,11 +1,13 @@
 import React from 'react';
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import BottomNavigator from '../BottomTabs/BottomNavigator';
 import HomeNavigator from '../../../screens/home/navigation/HomeNavigator';
+import type { HomeStackParamList } from '../../../screens/home/navigation/HomeNavigator';
 
 export type MainStackParamList = {
     Tabs: undefined;
-    HomeFlow: undefined;
+    HomeFlow: NavigatorScreenParams<HomeStackParamList>;
 };
 
 const Stack = createNativeStackNavigator<MainStackParamList>();
