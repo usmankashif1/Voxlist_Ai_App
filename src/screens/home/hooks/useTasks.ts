@@ -20,7 +20,8 @@ import {
     updateStoredTaskNotificationId,
 } from '../../../core/storage/taskStorage';
 import {
-    subscribeToTaskSync,
+    notifyTaskChanges,
+    subscribeToTaskChanges,
     syncTasksForUser,
 } from '../../../core/storage/taskSyncService';
 import { getLocalDueDate } from '../../../core/utils/dateTime';
@@ -313,7 +314,7 @@ const useTasks = () => {
         void reload();
     }, [reload]);
 
-    useEffect(() => subscribeToTaskSync(() => {
+    useEffect(() => subscribeToTaskChanges(() => {
         void reload();
     }), [reload]);
 
@@ -365,10 +366,10 @@ const useTasks = () => {
             setError("We couldn't save your changes. Please try again.");
             return false;
         }
+        notifyTaskChanges();
         requestSync();
-        void reload();
         return true;
-    }, [items, invalidatePendingReload, reload, requestSync]);
+    }, [items, invalidatePendingReload, requestSync]);
 
     const updateTasks = useCallback(async (updatedTasks: Task[]) => {
         if (!updatedTasks.length) return true;

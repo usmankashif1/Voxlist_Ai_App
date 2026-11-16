@@ -9,17 +9,17 @@ import {
     type CloudTask,
 } from './taskStorage';
 
-type SyncListener = () => void;
+type TaskChangeListener = () => void;
 
-const listeners = new Set<SyncListener>();
+const listeners = new Set<TaskChangeListener>();
 const activeSyncs = new Map<string, Promise<void>>();
 const requestedSyncs = new Set<string>();
 
-const notifySyncListeners = (): void => {
+export const notifyTaskChanges = (): void => {
     listeners.forEach(listener => listener());
 };
 
-export const subscribeToTaskSync = (listener: SyncListener) => {
+export const subscribeToTaskChanges = (listener: TaskChangeListener) => {
     listeners.add(listener);
     return () => {
         listeners.delete(listener);
@@ -104,5 +104,5 @@ const performTaskSync = async (userId: string): Promise<void> => {
         }
     }
 
-    notifySyncListeners();
+    notifyTaskChanges();
 };
