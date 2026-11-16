@@ -1,7 +1,6 @@
 import {
     AndroidNotificationPriority,
     cancelScheduledNotificationAsync,
-    getExactAlarmPermissionsAsync,
     getPermissionsAsync,
     scheduleNotificationAsync,
     SchedulableTriggerInputTypes,
@@ -12,6 +11,7 @@ import type { Task } from '../../screens/home/home.types';
 import {
     ANDROID_CHANNEL_ID,
     prepareNotificationChannel,
+    requestExactAlarmPermission,
 } from '../permissions/permissionService';
 
 export interface ScheduledTaskReminder {
@@ -42,7 +42,11 @@ export const scheduleTaskReminder = async (
     }
 
     const exactAlarmGranted = Platform.OS !== 'android'
-        || (await getExactAlarmPermissionsAsync()).granted;
+        || await requestExactAlarmPermission();
+    if (!exactAlarmGranted) {
+        throw new Error('Exact alarm permission was not granted. Allow exact alarms to receive task reminders on time.');
+    }
+
     const body = task.subtasks[0] || 'Your task is due now.';
     const notificationId = await scheduleNotificationAsync({
         content: {
@@ -66,7 +70,6 @@ export const scheduleTaskReminder = async (
             ...(Platform.OS === 'android'
                 ? {
                     channelId: ANDROID_CHANNEL_ID,
-                    // Alarm-clock delivery avoids Doze deferrals when exact-alarm access is granted.
                     delivery: 'alarmClock' as const,
                 }
                 : {}),

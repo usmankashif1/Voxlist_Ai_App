@@ -61,6 +61,7 @@ const VoiceTaskReviewModal = ({
     const [isProcessing, setIsProcessing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState('');
+    const [noActionableTasks, setNoActionableTasks] = useState(false);
     const [recordingAttempt, setRecordingAttempt] = useState(0);
     const [manualStartRequired, setManualStartRequired] = useState(false);
     const busy = isStarting || isRecording || isProcessing || isSaving;
@@ -139,12 +140,15 @@ const VoiceTaskReviewModal = ({
         reservationId: string,
     ) => {
         setError('');
+        setNoActionableTasks(false);
         const extractedTasks = await extractTasksFromText(
             transcription,
             reservationId,
             signal,
         );
-        if (!signal.aborted) setTasks(extractedTasks);
+        if (signal.aborted) return;
+        setTasks(extractedTasks);
+        setNoActionableTasks(extractedTasks.length === 0);
     };
 
 
@@ -175,14 +179,18 @@ const VoiceTaskReviewModal = ({
         }
     };
 
+    const handleRetryRecording = () => {
+        setError('');
+        setNoActionableTasks(false);
+        setManualStartRequired(false);
+        setRecordingAttempt(attempt => attempt + 1);
+    };
+
     const handleVoiceError = (message: string) => {
+        setNoActionableTasks(false);
         console.error('Could not process voice input.', message);
         if (/AI request limits could not be verified|Could not verify voice request limits/i.test(message)) {
             setError('Could not verify voice request limits. Please try again shortly.');
-            return;
-        }
-        if (/no actionable tasks? (?:were )?found/i.test(message)) {
-            setError('No actionable tasks found. Try again with a clearer note describing what you need to do.');
             return;
         }
         if (/HTTP (?:429|503)|providerStatus["'\s:]+(?:429|503)|high demand|high traffic|AI is busy|temporarily unavailable|too many requests|RESOURCE_EXHAUSTED|rate.?limit/i.test(message)) {
@@ -208,6 +216,7 @@ const VoiceTaskReviewModal = ({
         }
         setTasks([]);
         setError('');
+        setNoActionableTasks(false);
         setManualStartRequired(false);
         setRecordingAttempt(0);
         onClose();
@@ -369,17 +378,23 @@ const VoiceTaskReviewModal = ({
                         <AppText style={styles.status}>Transcribing and preparing tasks…</AppText>
                     ) : null}
                     {error ? <AppText style={styles.error}>{error}</AppText> : null}
-                    {error && !busy ? (
+                    {noActionableTasks ? (
+                        <View style={styles.noTasksNotice} accessibilityLiveRegion="polite">
+                            <AppText style={styles.noTasksTitle}>No task found in that note</AppText>
+                            <AppText style={styles.noTasksDescription}>
+                                Try describing one clear action, for example: Call the dentist tomorrow.
+                            </AppText>
+                        </View>
+                    ) : null}
+                    {(error || noActionableTasks) && !busy ? (
                         <AppButton
                             style={styles.retryButton}
-                            onPress={() => {
-                                setError('');
-                                setManualStartRequired(false);
-                                setRecordingAttempt(attempt => attempt + 1);
-                            }}
+                            onPress={handleRetryRecording}
                             accessibilityRole="button"
                         >
-                            <AppText style={styles.retryText}>Try recording again</AppText>
+                            <AppText style={styles.retryText}>
+                                {noActionableTasks ? 'Record another note' : 'Try recording again'}
+                            </AppText>
                         </AppButton>
                     ) : null}
 
@@ -479,6 +494,25 @@ const styles = StyleSheet.create({
         color: taskTheme.colors.danger,
         fontSize: RF(13),
         marginTop: RH(taskTheme.spacing.md),
+    },
+    noTasksNotice: {
+        marginTop: RH(taskTheme.spacing.md),
+        padding: RS(taskTheme.spacing.md),
+        borderRadius: RS(taskTheme.radius.md),
+        borderWidth: 1,
+        borderColor: taskTheme.colors.border,
+        backgroundColor: taskTheme.colors.surface,
+    },
+    noTasksTitle: {
+        color: taskTheme.colors.text,
+        fontSize: RF(14),
+        fontWeight: '700',
+    },
+    noTasksDescription: {
+        color: taskTheme.colors.textSecondary,
+        fontSize: RF(13),
+        lineHeight: RF(19),
+        marginTop: RH(taskTheme.spacing.xs),
     },
     retryButton: {
         alignSelf: 'flex-start',

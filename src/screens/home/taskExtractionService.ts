@@ -15,10 +15,5 @@ export const extractTasksFromText = async (
         reservationId,
         signal,
     );
-    const tasks = validateExtractedTasks(candidates);
-
-    if (tasks.length === 0) {
-        throw new Error('No actionable tasks were found in that note.');
-    }
-    return tasks;
+    return validateExtractedTasks(candidates);
 };

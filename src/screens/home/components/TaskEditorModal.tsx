@@ -93,7 +93,9 @@ const TaskEditorModal = ({
     const [dueDate, setDueDate] = useState(task?.dueDate ?? '');
     const [dueTime, setDueTime] = useState(task?.dueTime ?? '');
     const [reminderEnabled, setReminderEnabled] = useState(
-        Boolean(task?.reminderEnabled && task?.dueDate && task?.dueTime),
+        task
+            ? Boolean(task.reminderEnabled && task.dueDate && task.dueTime)
+            : true,
     );
     const [error, setError] = useState('');
     const [activePicker, setActivePicker] = useState<PickerMode | null>(null);
@@ -208,157 +210,164 @@ const TaskEditorModal = ({
                                 { paddingBottom: RS(36) + insets.bottom },
                             ]}
                         >
-                        <AppText style={styles.title}>{modalTitle}</AppText>
-                        <AppText style={styles.label}>Title</AppText>
-                        <TextInput
-                            style={styles.input}
-                            value={title}
-                            onChangeText={setTitle}
-                            placeholder="Task title"
-                            accessibilityLabel="Task title"
-                        />
+                            <AppText style={styles.title}>{modalTitle}</AppText>
+                            <AppText style={styles.label}>Title</AppText>
+                            <TextInput
+                                style={styles.input}
+                                value={title}
+                                onChangeText={setTitle}
+                                placeholder="Task title"
+                                accessibilityLabel="Task title"
+                            />
 
-                        <View style={styles.subtaskHeading}>
-                            <AppText style={styles.label}>Subtasks</AppText>
-                            <AppButton
-                                style={styles.addSubtaskButton}
-                                onPress={() => setSubtasks(current => [...current, ''])}
-                                accessibilityRole="button"
-                                accessibilityLabel="Add subtask"
-                            >
-                                <AppText style={styles.addSubtaskText}>+ Add subtask</AppText>
-                            </AppButton>
-                        </View>
-                        {subtasks.map((subtask, index) => (
-                            <View key={index} style={styles.subtaskRow}>
-                                <TextInput
-                                    style={[styles.input, styles.subtaskInput]}
-                                    value={subtask}
-                                    onChangeText={value => setSubtasks(current => current.map(
-                                        (item, itemIndex) => itemIndex === index ? value : item,
-                                    ))}
-                                    placeholder={`Subtask ${index + 1}`}
-                                    accessibilityLabel={`Subtask ${index + 1}`}
-                                />
+                            <View style={styles.subtaskHeading}>
+                                <AppText style={styles.label}>Subtasks</AppText>
                                 <AppButton
-                                    style={styles.removeSubtaskButton}
-                                    onPress={() => setSubtasks(current => current.filter(
-                                        (_, itemIndex) => itemIndex !== index,
-                                    ))}
+                                    style={styles.addSubtaskButton}
+                                    onPress={() => setSubtasks(current => [...current, ''])}
                                     accessibilityRole="button"
-                                    accessibilityLabel={`Remove subtask ${index + 1}`}
+                                    accessibilityLabel="Add subtask"
                                 >
-                                    <AppText style={styles.removeSubtaskText}>×</AppText>
+                                    <AppText style={styles.addSubtaskText}>+ Add subtask</AppText>
                                 </AppButton>
                             </View>
-                        ))}
+                            {subtasks.map((subtask, index) => (
+                                <View key={index} style={styles.subtaskRow}>
+                                    <TextInput
+                                        style={[styles.input, styles.subtaskInput]}
+                                        value={subtask}
+                                        onChangeText={value => setSubtasks(current => current.map(
+                                            (item, itemIndex) => itemIndex === index ? value : item,
+                                        ))}
+                                        placeholder={`Subtask ${index + 1}`}
+                                        accessibilityLabel={`Subtask ${index + 1}`}
+                                    />
+                                    <AppButton
+                                        style={styles.removeSubtaskButton}
+                                        onPress={() => setSubtasks(current => current.filter(
+                                            (_, itemIndex) => itemIndex !== index,
+                                        ))}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Remove subtask ${index + 1}`}
+                                    >
+                                        <AppText style={styles.removeSubtaskText}>×</AppText>
+                                    </AppButton>
+                                </View>
+                            ))}
 
-                        <View style={styles.dateTimeRow}>
-                            <View style={styles.dateField}>
-                                <AppText style={styles.label}>Due date</AppText>
-                                <View style={styles.pickerValueRow}>
-                                    <AppButton
-                                        style={styles.pickerValue}
-                                        onPress={() => openPicker('date')}
-                                        accessibilityRole="button"
-                                        accessibilityLabel="Select due date"
-                                    >
-                                        <AppText style={[styles.pickerText, !dueDate && styles.placeholder]}>
-                                            {formatDateLabel(dueDate)}
-                                        </AppText>
-                                    </AppButton>
-                                    {dueDate ? (
+                            <View style={styles.dateTimeRow}>
+                                <View style={styles.dateField}>
+                                    <AppText style={styles.label}>Due date</AppText>
+                                    <View style={styles.pickerValueRow}>
                                         <AppButton
-                                            style={styles.clearPicker}
-                                            onPress={() => setDueDate('')}
+                                            style={styles.pickerValue}
+                                            onPress={() => openPicker('date')}
                                             accessibilityRole="button"
-                                            accessibilityLabel="Clear due date"
+                                            accessibilityLabel="Select due date"
                                         >
-                                            <AppText style={styles.clearPickerText}>×</AppText>
+                                            <AppText style={[styles.pickerText, !dueDate && styles.placeholder]}>
+                                                {formatDateLabel(dueDate)}
+                                            </AppText>
                                         </AppButton>
-                                    ) : null}
+                                        {dueDate ? (
+                                            <AppButton
+                                                style={styles.clearPicker}
+                                                onPress={() => setDueDate('')}
+                                                accessibilityRole="button"
+                                                accessibilityLabel="Clear due date"
+                                            >
+                                                <AppText style={styles.clearPickerText}>×</AppText>
+                                            </AppButton>
+                                        ) : null}
+                                    </View>
+                                </View>
+                                <View style={styles.timeField}>
+                                    <AppText style={styles.label}>Time</AppText>
+                                    <View style={styles.pickerValueRow}>
+                                        <AppButton
+                                            style={styles.pickerValue}
+                                            onPress={() => openPicker('time')}
+                                            accessibilityRole="button"
+                                            accessibilityLabel="Select due time"
+                                        >
+                                            <AppText style={[styles.pickerText, !dueTime && styles.placeholder]}>
+                                                {formatTimeLabel(dueTime)}
+                                            </AppText>
+                                        </AppButton>
+                                        {dueTime ? (
+                                            <AppButton
+                                                style={styles.clearPicker}
+                                                onPress={() => setDueTime('')}
+                                                accessibilityRole="button"
+                                                accessibilityLabel="Clear due time"
+                                            >
+                                                <AppText style={styles.clearPickerText}>×</AppText>
+                                            </AppButton>
+                                        ) : null}
+                                    </View>
                                 </View>
                             </View>
-                            <View style={styles.timeField}>
-                                <AppText style={styles.label}>Time</AppText>
-                                <View style={styles.pickerValueRow}>
+                            {Platform.OS === 'ios' && activePicker ? (
+                                <View style={styles.inlinePicker}>
+                                    <DateTimePicker
+                                        value={parseLocalDate(dueDate, dueTime)}
+                                        mode={activePicker}
+                                        display="spinner"
+                                        locale={activePicker === 'time' ? 'en_US' : undefined}
+                                        onValueChange={handlePickerChange}
+                                        themeVariant="light"
+                                    />
                                     <AppButton
-                                        style={styles.pickerValue}
-                                        onPress={() => openPicker('time')}
-                                        accessibilityRole="button"
-                                        accessibilityLabel="Select due time"
+                                        style={styles.pickerDone}
+                                        onPress={() => setActivePicker(null)}
                                     >
-                                        <AppText style={[styles.pickerText, !dueTime && styles.placeholder]}>
-                                            {formatTimeLabel(dueTime)}
-                                        </AppText>
+                                        <AppText style={styles.pickerDoneText}>Done</AppText>
                                     </AppButton>
-                                    {dueTime ? (
-                                        <AppButton
-                                            style={styles.clearPicker}
-                                            onPress={() => setDueTime('')}
-                                            accessibilityRole="button"
-                                            accessibilityLabel="Clear due time"
-                                        >
-                                            <AppText style={styles.clearPickerText}>×</AppText>
-                                        </AppButton>
-                                    ) : null}
                                 </View>
-                            </View>
-                        </View>
-                        {Platform.OS === 'ios' && activePicker ? (
-                            <View style={styles.inlinePicker}>
-                                <DateTimePicker
-                                    value={parseLocalDate(dueDate, dueTime)}
-                                    mode={activePicker}
-                                    display="spinner"
-                                    locale={activePicker === 'time' ? 'en_US' : undefined}
-                                    onValueChange={handlePickerChange}
-                                    themeVariant="light"
-                                />
+                            ) : null}
+                            <AppText style={styles.hint}>Choose a date and time for this task.</AppText>
+
+                            {dueDate && dueTime ? (
+                                <>
+                                    <View style={styles.reminderRow}>
+                                        <AppText style={styles.label}>Reminder</AppText>
+                                        <AnimatedToggle
+                                            value={reminderEnabled}
+                                            onValueChange={handleReminderToggle}
+                                            accessibilityLabel="Enable task reminder"
+                                        />
+                                    </View>
+                                    {Platform.OS === 'android' && reminderEnabled ? (
+                                        <AppText style={styles.hint}>
+                                            For reliable reminders, set battery use to Unrestricted and enable Autostart for this app if available.
+                                        </AppText>
+                                    ) : null}
+                                </>
+                            ) : null}
+
+                            {error ? <AppText style={styles.error}>{error}</AppText> : null}
+
+                            <View style={styles.actions}>
                                 <AppButton
-                                    style={styles.pickerDone}
-                                    onPress={() => setActivePicker(null)}
+                                    style={styles.cancelButton}
+                                    onPress={onCancel}
+                                    disabled={saving}
                                 >
-                                    <AppText style={styles.pickerDoneText}>Done</AppText>
+                                    <AppText style={styles.cancelText}>Cancel</AppText>
+                                </AppButton>
+                                <AppButton
+                                    style={[
+                                        styles.saveButton,
+                                        (saving || checkingReminderPermissions) && styles.disabledButton,
+                                    ]}
+                                    onPress={handleSave}
+                                    disabled={saving || checkingReminderPermissions}
+                                >
+                                    <AppText style={styles.saveText}>
+                                        {saving ? 'Saving…' : checkingReminderPermissions ? 'Checking reminder…' : 'Save task'}
+                                    </AppText>
                                 </AppButton>
                             </View>
-                        ) : null}
-                        <AppText style={styles.hint}>Choose a date and time for this task.</AppText>
-
-                        {dueDate && dueTime ? (
-                            <View style={styles.reminderRow}>
-                                <AppText style={styles.label}>Reminder</AppText>
-                                <AnimatedToggle
-                                    value={reminderEnabled}
-                                    onValueChange={handleReminderToggle}
-                                    accessibilityLabel="Enable task reminder"
-                                />
-                            </View>
-                        ) : null}
-
-                        {error ? <AppText style={styles.error}>{error}</AppText> : null}
-
-                        <View style={styles.actions}>
-                            <AppButton
-                                style={styles.cancelButton}
-                                onPress={onCancel}
-                                disabled={saving}
-                            >
-                                <AppText style={styles.cancelText}>Cancel</AppText>
-                            </AppButton>
-                            <AppButton
-                                style={[
-                                    styles.saveButton,
-                                    (saving || checkingReminderPermissions) && styles.disabledButton,
-                                ]}
-                                onPress={handleSave}
-                                disabled={saving || checkingReminderPermissions}
-                            >
-                                <AppText style={styles.saveText}>
-                                    {saving ? 'Saving…' : checkingReminderPermissions ? 'Checking reminder…' : 'Save task'}
-                                </AppText>
-                            </AppButton>
-                        </View>
                         </ScrollView>
                     </Animated.View>
                 </View>

@@ -1,0 +1,23 @@
+diff --git a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/NotificationsService.kt b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/NotificationsService.kt
+index cdf1e6a..e3363b5 100644
+--- a/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/NotificationsService.kt
++++ b/node_modules/expo-notifications/android/src/main/java/expo/modules/notifications/service/NotificationsService.kt
+@@ -430,17 +430,11 @@ open class NotificationsService : BroadcastReceiver() {
+         intent.putExtra(IDENTIFIER_KEY, identifier)
+       }
+ 
+-      // We're defaulting to the behaviour prior API 31 (mutable) even though Android recommends immutability
+-      val mutableFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+-        PendingIntent.FLAG_MUTABLE
+-      } else {
+-        0
+-      }
+       return PendingIntent.getBroadcast(
+         context,
+         intent.component?.className?.hashCode() ?: NotificationsService::class.java.hashCode(),
+         intent,
+-        PendingIntent.FLAG_UPDATE_CURRENT or mutableFlag
++        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+       )
+     }
+ 

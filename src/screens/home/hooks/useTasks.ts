@@ -330,7 +330,7 @@ const useTasks = () => {
             const createdTasks = await insertTasks(drafts, userId);
             setItems(current => [...createdTasks, ...current]);
             requestSync();
-            await reload();
+            void reload();
             return true;
         } catch (saveError) {
             console.error('Could not create task.', saveError);
@@ -366,7 +366,7 @@ const useTasks = () => {
             return false;
         }
         requestSync();
-        await reload();
+        void reload();
         return true;
     }, [items, invalidatePendingReload, reload, requestSync]);
 
@@ -400,8 +400,8 @@ const useTasks = () => {
             return false;
         }
 
-        await reload();
         requestSync();
+        void reload();
         return true;
     }, [items, invalidatePendingReload, reload, requestSync]);
 
