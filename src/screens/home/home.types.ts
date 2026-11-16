@@ -21,7 +21,10 @@ export interface Task extends ExtractedTask {
 
 export type TaskDateLabel = 'Overdue' | 'Today' | 'Tomorrow' | 'Upcoming' | 'No Date';
 
+export type TaskCategory = TaskDateLabel | 'Completed';
+
 export interface TaskSection {
-    title: TaskDateLabel;
+    title: TaskCategory;
     data: Task[];
+    dateLabel?: TaskDateLabel;
 }

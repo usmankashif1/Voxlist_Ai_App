@@ -5,7 +5,6 @@ import {
     KeyboardAvoidingView,
     Platform,
     RefreshControl,
-    ScrollView,
     SectionList,
     StyleSheet,
     Image,
@@ -17,12 +16,13 @@ import { getLocalDueDate, getTaskDateLabel } from '../../../core/utils/dateTime'
 import { taskTheme } from '../../../core/theme/taskTheme';
 import { getErrorMessage } from '../../../core/utils/errorMessage';
 import TaskCard from '../components/TaskCard';
+import TaskCategoryTabs from '../components/TaskCategoryTabs';
 import TaskEditorModal from '../components/TaskEditorModal';
 import MoveOverdueTasksModal from '../components/MoveOverdueTasksModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import VoiceTaskReviewModal from '../components/VoiceTaskReviewModal';
 import InternetRequiredSheet from '../components/InternetRequiredSheet';
-import type { ExtractedTask, Task, TaskDateLabel, TaskSection } from '../home.types';
+import type { ExtractedTask, Task, TaskCategory, TaskDateLabel, TaskSection } from '../home.types';
 import useTasks from '../hooks/useTasks';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
@@ -46,23 +46,36 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 
 const sectionOrder: TaskDateLabel[] = ['Overdue', 'Today', 'Tomorrow', 'Upcoming', 'No Date'];
+const categories: TaskCategory[] = [...sectionOrder, 'Completed'];
 const HOME_PERMISSIONS_PROMPTED_KEY = 'home-permissions-prompted-v2';
 
 
-const groupTasks = (tasks: Task[]): TaskSection[] => {
-    const groups = new Map<TaskDateLabel, Task[]>(
-        sectionOrder.map(label => [label, []]),
-    );
-
-    for (const task of tasks) {
-        const label = getTaskDateLabel(task.dueDate);
-        groups.get(label)?.push(task);
+const getCategorySections = (
+    tasks: Task[],
+    category: TaskCategory,
+    currentDate: Date,
+): TaskSection[] => {
+    if (category === 'Completed') {
+        const completedTasks = tasks.filter(task => task.isCompleted);
+        return completedTasks.length
+            ? [{ title: 'Completed', data: completedTasks }]
+            : [];
     }
 
-    return sectionOrder.flatMap(title => {
-        const data = groups.get(title) ?? [];
-        return data.length ? [{ title, data }] : [];
-    });
+    const categoryTasks = tasks.filter(
+        task => getTaskDateLabel(task.dueDate, currentDate) === category,
+    );
+    const activeTasks = categoryTasks.filter(task => !task.isCompleted);
+    const completedTasks = categoryTasks.filter(task => task.isCompleted);
+
+    return [
+        ...(activeTasks.length
+            ? [{ title: category, data: activeTasks, dateLabel: category }]
+            : []),
+        ...(completedTasks.length
+            ? [{ title: 'Completed' as const, data: completedTasks, dateLabel: category }]
+            : []),
+    ];
 };
 
 
@@ -81,11 +94,27 @@ const HomeScreen = () => {
         toggleTaskCompletion,
         deleteTask,
     } = useTasks();
-
+    const [currentDate, setCurrentDate] = useState(() => new Date());
 
     useFocusEffect(useCallback(() => {
+        setCurrentDate(new Date());
         void reload();
     }, [reload]));
+
+    useEffect(() => {
+        const now = new Date();
+        const nextMidnight = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate() + 1,
+        );
+        const timeout = setTimeout(
+            () => setCurrentDate(new Date()),
+            nextMidnight.getTime() - now.getTime(),
+        );
+
+        return () => clearTimeout(timeout);
+    }, [currentDate]);
 
 
     const handleCompleteTask = useCallback((task: Task) => {
@@ -105,7 +134,7 @@ const HomeScreen = () => {
     const [isPreparingVoice, setIsPreparingVoice] = useState(false);
     const [isInternetSheetOpen, setIsInternetSheetOpen] = useState(false);
     const [isOffline, setIsOffline] = useState(true);
-    const [selectedCategory, setSelectedCategory] = useState<TaskDateLabel>('Today');
+    const [selectedCategory, setSelectedCategory] = useState<TaskCategory>('Today');
     const [isSelectingOverdueTasks, setIsSelectingOverdueTasks] = useState(false);
     const [selectedOverdueTaskIds, setSelectedOverdueTaskIds] = useState<string[]>([]);
     const [isMoveOverdueModalOpen, setIsMoveOverdueModalOpen] = useState(false);
@@ -170,32 +199,32 @@ const HomeScreen = () => {
 
 
     const categoryCounts = useMemo(() => {
-        const counts = new Map<TaskDateLabel, number>(
-            sectionOrder.map(category => [category, 0]),
+        const counts = new Map<TaskCategory, number>(
+            categories.map(category => [category, 0]),
         );
         for (const task of items) {
-            const category = getTaskDateLabel(task.dueDate);
+            const category = getTaskDateLabel(task.dueDate, currentDate);
             counts.set(category, (counts.get(category) ?? 0) + 1);
+            if (task.isCompleted) {
+                counts.set('Completed', (counts.get('Completed') ?? 0) + 1);
+            }
         }
         return counts;
-    }, [items]);
-
-
-
+    }, [currentDate, items]);
 
     const sections = useMemo(
-        () => groupTasks(items.filter(task => getTaskDateLabel(task.dueDate) === selectedCategory)),
-        [items, selectedCategory],
+        () => getCategorySections(items, selectedCategory, currentDate),
+        [currentDate, items, selectedCategory],
     );
     const selectedOverdueTasks = useMemo(
         () => items.filter(task => (
             selectedOverdueTaskIds.includes(task.id)
-            && getTaskDateLabel(task.dueDate) === 'Overdue'
+            && getTaskDateLabel(task.dueDate, currentDate) === 'Overdue'
         )),
-        [items, selectedOverdueTaskIds],
+        [currentDate, items, selectedOverdueTaskIds],
     );
 
-    const handleCategorySelect = (category: TaskDateLabel) => {
+    const handleCategorySelect = (category: TaskCategory) => {
         setSelectedCategory(category);
         setIsSelectingOverdueTasks(false);
         setSelectedOverdueTaskIds([]);
@@ -343,29 +372,12 @@ const HomeScreen = () => {
                 <AppText style={styles.taskCount}>{items.length}</AppText>
             </View>
 
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.categoryScroll}
-                contentContainerStyle={styles.categoryRow}
-            >
-                {sectionOrder.map(category => {
-                    const isSelected = selectedCategory === category;
-                    return (
-                        <AppButton
-                            key={category}
-                            style={[styles.categoryButton, isSelected && styles.selectedCategoryButton]}
-                            onPress={() => handleCategorySelect(category)}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected: isSelected }}
-                        >
-                            <AppText style={[styles.categoryText, isSelected && styles.selectedCategoryText]}>
-                                {category} ({categoryCounts.get(category) ?? 0})
-                            </AppText>
-                        </AppButton>
-                    );
-                })}
-            </ScrollView>
+            <TaskCategoryTabs
+                categories={categories}
+                counts={categoryCounts}
+                selectedCategory={selectedCategory}
+                onSelect={handleCategorySelect}
+            />
 
             {error ? (
                 <View style={styles.errorNotice}>
@@ -394,12 +406,12 @@ const HomeScreen = () => {
                     renderItem={({ item, section }) => (
                         <TaskCard
                             task={item}
-                            dateLabel={section.title}
+                            dateLabel={section.dateLabel ?? getTaskDateLabel(item.dueDate, currentDate)}
                             onPress={task => navigation.navigate('TaskDetails', { taskId: task.id })}
                             onComplete={handleCompleteTask}
                             onEdit={setEditingTask}
                             onDelete={task => void deleteTask(task)}
-                            selectionMode={isSelectingOverdueTasks}
+                            selectionMode={isSelectingOverdueTasks && !item.isCompleted}
                             selected={selectedOverdueTaskIds.includes(item.id)}
                             onSelect={() => toggleOverdueTaskSelection(item.id)}
                         />
@@ -621,37 +633,6 @@ const styles = StyleSheet.create({
         gap: RW(taskTheme.spacing.sm),
         marginTop: RH(taskTheme.spacing.xxl),
         marginBottom: RH(taskTheme.spacing.md),
-    },
-    categoryScroll: {
-        marginHorizontal: -RW(taskTheme.spacing.xl),
-    },
-    categoryRow: {
-        gap: RW(taskTheme.spacing.sm),
-        paddingBottom: RH(taskTheme.spacing.sm),
-        paddingHorizontal: RW(taskTheme.spacing.xl),
-        flexGrow: 1,
-        alignItems: 'center',
-    },
-    categoryButton: {
-        minHeight: RH(40),
-        justifyContent: 'center',
-        borderColor: taskTheme.colors.border,
-        borderWidth: 1,
-        borderRadius: RS(taskTheme.radius.lg),
-        backgroundColor: taskTheme.colors.surface,
-        paddingHorizontal: RW(taskTheme.spacing.md),
-    },
-    selectedCategoryButton: {
-        borderColor: taskTheme.colors.primary,
-        backgroundColor: taskTheme.colors.primary,
-    },
-    categoryText: {
-        color: taskTheme.colors.textSecondary,
-        fontSize: RF(12),
-        fontWeight: '600',
-    },
-    selectedCategoryText: {
-        color: taskTheme.colors.white,
     },
     overdueSectionHeader: {
         flexDirection: 'row',

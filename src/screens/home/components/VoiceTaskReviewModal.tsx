@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
     Animated,
     Modal,
-    Pressable,
     ScrollView,
     StyleSheet,
     View,
@@ -230,15 +229,10 @@ const VoiceTaskReviewModal = ({
             transparent
             animationType="none"
             onShow={startOpening}
-            onRequestClose={handleClose}
+            onRequestClose={() => undefined}
         >
             <View style={styles.backdrop}>
-                <Pressable
-                    style={StyleSheet.absoluteFill}
-                    onPress={() => void handleClose()}
-                    accessibilityRole="button"
-                    accessibilityLabel="Close voice task creation"
-                />
+                <View style={StyleSheet.absoluteFill} />
                 <Animated.View
                     pointerEvents="none"
                     style={[StyleSheet.absoluteFill, styles.dimmer, backdropStyle]}
@@ -249,7 +243,9 @@ const VoiceTaskReviewModal = ({
                         sheetStyle,
                         {
                             maxHeight: maxSheetHeight,
-                            paddingBottom: RH(taskTheme.spacing.xl) + insets.bottom,
+                            paddingBottom: RH(
+                                tasks.length ? 10 : taskTheme.spacing.xl,
+                            ) + insets.bottom,
                         },
                     ]}
                 >
@@ -334,7 +330,12 @@ const VoiceTaskReviewModal = ({
                         </>
                     ) : null}
 
-                    <View style={styles.voiceAction}>
+                    <View
+                        style={[
+                            styles.voiceAction,
+                            tasks.length > 0 && styles.reviewVoiceAction,
+                        ]}
+                    >
                         {visible ? (
                             <>
                                 {isRecording ? (
@@ -468,6 +469,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         marginTop: RH(taskTheme.spacing.lg),
+    },
+    reviewVoiceAction: {
+        minHeight: 0,
+        marginTop: 0,
     },
     waveform: {
         height: RH(48),
