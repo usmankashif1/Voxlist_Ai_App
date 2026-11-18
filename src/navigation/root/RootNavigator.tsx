@@ -44,6 +44,8 @@ const RootNavigator = () => {
         });
     }, [navigationRef]);
 
+
+
     useEffect(() => {
         if (!lastNotificationResponse) return;
 
@@ -75,6 +77,51 @@ const RootNavigator = () => {
         ? session.user.id
         : null;
 
+
+
+
+
+    // useEffect(() => {
+    //     if (!userId) return undefined;
+
+    //     const sync = () => {
+    //         void syncTasksForUser(userId).catch(error => {
+    //             console.error('Task sync failed; local changes are still saved.', error);
+    //         });
+    //     };
+    //     let isOnline = false;
+    //     const updateNetworkState = (
+    //         state: Network.NetworkState,
+    //         source: 'initial' | 'listener',
+    //     ) => {
+    //         console.log(`[NETWORK_DEBUG] RootNavigator ${source} state: ${JSON.stringify(state)}`);
+    //         const wasOnline = isOnline;
+    //         isOnline = state.isConnected === true && state.isInternetReachable !== false;
+    //         if (isOnline && !wasOnline) sync();
+    //     };
+    //     const networkSubscription = Network.addNetworkStateListener(
+    //         state => updateNetworkState(state, 'listener'),
+    //     );
+    //     void Network.getNetworkStateAsync()
+    //         .then(state => updateNetworkState(state, 'initial'))
+    //         .catch(error => {
+    //             console.error('Could not determine network availability for task sync.', error);
+    //         });
+    //     const appStateSubscription = AppState.addEventListener('change', state => {
+    //         if (state === 'active' && isOnline) sync();
+    //     });
+
+    //     return () => {
+    //         networkSubscription.remove();
+    //         appStateSubscription.remove();
+    //     };
+    // }, [userId]);
+
+
+
+
+
+
     useEffect(() => {
         if (!userId) return undefined;
 
@@ -83,15 +130,54 @@ const RootNavigator = () => {
                 console.error('Task sync failed; local changes are still saved.', error);
             });
         };
+
         let isOnline = false;
-        const updateNetworkState = (state: Network.NetworkState) => {
+        let offlineTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const clearOfflineTimer = () => {
+            if (offlineTimer) {
+                clearTimeout(offlineTimer);
+                offlineTimer = null;
+            }
+        };
+
+        const updateNetworkState = (
+            state: Network.NetworkState,
+            source: 'initial' | 'listener',
+        ) => {
+            console.log(`[NETWORK_DEBUG] RootNavigator ${source} state: ${JSON.stringify(state)}`);
             const wasOnline = isOnline;
-            isOnline = state.isConnected === true && state.isInternetReachable !== false;
+
+            // Hard offline: radio is down. Trust this immediately.
+            if (state.isConnected === false) {
+                clearOfflineTimer();
+                isOnline = false;
+                return;
+            }
+
+            // Connected, but reachability says false: on cellular this is
+            // often a transient validation delay, not a real outage.
+            // Wait a few seconds before actually marking offline, in case
+            // a newer event clears it first.
+            if (state.isConnected === true && state.isInternetReachable === false) {
+                clearOfflineTimer();
+                offlineTimer = setTimeout(() => {
+                    isOnline = false;
+                }, 4000);
+                return;
+            }
+
+            // Connected and reachable (or reachability unknown/null) — online.
+            clearOfflineTimer();
+            isOnline = true;
             if (isOnline && !wasOnline) sync();
         };
-        const networkSubscription = Network.addNetworkStateListener(updateNetworkState);
+
+        const networkSubscription = Network.addNetworkStateListener(
+            state => updateNetworkState(state, 'listener'),
+        );
         void Network.getNetworkStateAsync()
-            .then(updateNetworkState)
+            .then(state => updateNetworkState(state, 'initial'))
             .catch(error => {
                 console.error('Could not determine network availability for task sync.', error);
             });
@@ -100,10 +186,16 @@ const RootNavigator = () => {
         });
 
         return () => {
+            clearOfflineTimer();
             networkSubscription.remove();
             appStateSubscription.remove();
         };
     }, [userId]);
+
+
+
+
+
 
     return (
         <NavigationContainer ref={navigationRef} onReady={handleNavigationReady}>

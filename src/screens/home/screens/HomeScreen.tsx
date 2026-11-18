@@ -142,31 +142,99 @@ const HomeScreen = () => {
     const hasStartedPermissionCheck = useRef(false);
     const isPreparingVoiceRef = useRef(false);
 
+    // useEffect(() => {
+    //     let isMounted = true;
+    //     const updateNetworkState = (
+    //         state: Network.NetworkState,
+    //         source: 'initial' | 'listener',
+    //     ) => {
+    //         if (!isMounted) return;
+    //         console.log(`[NETWORK_DEBUG] HomeScreen ${source} state: ${JSON.stringify(state)}`);
+    //         setIsOffline(
+    //             state.isConnected === false || state.isInternetReachable === false,
+    //         );
+    //     };
+
+
+    //     const subscription = Network.addNetworkStateListener(
+    //         state => updateNetworkState(state, 'listener'),
+    //     );
+    //     void Network.getNetworkStateAsync()
+    //         .then(state => updateNetworkState(state, 'initial'))
+    //         .catch(error => {
+    //             console.error('Could not determine network availability for voice tasks.', error);
+    //         });
+
+    //     return () => {
+    //         isMounted = false;
+    //         subscription.remove();
+    //     };
+    // }, []);
+
+
+
     useEffect(() => {
         let isMounted = true;
-        const updateNetworkState = (state: Network.NetworkState) => {
-            if (!isMounted) return;
-            setIsOffline(
-                state.isConnected === false || state.isInternetReachable === false,
-            );
+        let offlineTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const clearOfflineTimer = () => {
+            if (offlineTimer) {
+                clearTimeout(offlineTimer);
+                offlineTimer = null;
+            }
         };
 
+        const updateNetworkState = (
+            state: Network.NetworkState,
+            source: 'initial' | 'listener',
+        ) => {
+            if (!isMounted) return;
+            console.log(`[NETWORK_DEBUG] HomeScreen ${source} state: ${JSON.stringify(state)}`);
 
-        const subscription = Network.addNetworkStateListener(updateNetworkState);
+            // Hard offline: no connection at all — trust this immediately.
+            if (state.isConnected === false) {
+                clearOfflineTimer();
+                setIsOffline(true);
+                return;
+            }
+
+            // Connected, but reachability says false or is still unknown:
+            // on cellular this is often a transient validation delay, not a
+            // real outage. Don't flip to offline immediately — wait a few
+            // seconds in case a newer event clears it first.
+            if (state.isConnected === true && state.isInternetReachable === false) {
+                clearOfflineTimer();
+                offlineTimer = setTimeout(() => {
+                    if (isMounted) setIsOffline(true);
+                }, 4000);
+                return;
+            }
+
+            // Connected and reachable (or reachability unknown/null) — treat as online.
+            clearOfflineTimer();
+            setIsOffline(false);
+        };
+
+        const subscription = Network.addNetworkStateListener(
+            state => updateNetworkState(state, 'listener'),
+        );
         void Network.getNetworkStateAsync()
-            .then(updateNetworkState)
+            .then(state => updateNetworkState(state, 'initial'))
             .catch(error => {
                 console.error('Could not determine network availability for voice tasks.', error);
             });
 
         return () => {
             isMounted = false;
+            clearOfflineTimer();
             subscription.remove();
         };
     }, []);
 
 
-    
+
+
+
 
     useEffect(() => {
         if (hasStartedPermissionCheck.current) return;
@@ -441,7 +509,7 @@ const HomeScreen = () => {
                                     </AppButton>
                                 </>
                             ) : (
-                                <View style={{justifyContent: 'space-between', flexDirection: 'row', alignItems: 'center', width: '100%'}}>
+                                <View style={{ justifyContent: 'space-between', flexDirection: 'row', alignItems: 'center', width: '100%' }}>
                                     <AppText
                                         style={[styles.sectionTitle, styles.overdueSectionTitle]}
                                     >
@@ -499,7 +567,7 @@ const HomeScreen = () => {
                     : 'Create tasks by voice'}
             >
                 {isPreparingVoice
-                    ? <ActivityIndicator size={RS(30)}  color="white" />
+                    ? <ActivityIndicator size={RS(30)} color="white" />
                     : <FontAwesome5 name="microphone" size={RS(26)} color="white" />}
             </AppButton>
 
