@@ -16,6 +16,7 @@ import { getLocalDueDate, getTaskDateLabel } from '../../../core/utils/dateTime'
 import { taskTheme } from '../../../core/theme/taskTheme';
 import { getErrorMessage } from '../../../core/utils/errorMessage';
 import TaskCard from '../components/TaskCard';
+import TaskActionsSheet from '../components/TaskActionsSheet';
 import TaskCategoryTabs from '../components/TaskCategoryTabs';
 import TaskEditorModal from '../components/TaskEditorModal';
 import MoveOverdueTasksModal from '../components/MoveOverdueTasksModal';
@@ -123,6 +124,8 @@ const HomeScreen = () => {
 
 
     const [editingTask, setEditingTask] = useState<Task | null>(null);
+    const [taskActionTask, setTaskActionTask] = useState<Task | null>(null);
+    const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
     const [isSavingTask, setIsSavingTask] = useState(false);
     const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
     const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
@@ -176,11 +179,16 @@ const HomeScreen = () => {
     useEffect(() => {
         let isMounted = true;
         let offlineTimer: ReturnType<typeof setTimeout> | null = null;
+        let reachabilityController: AbortController | null = null;
 
         const clearOfflineTimer = () => {
             if (offlineTimer) {
                 clearTimeout(offlineTimer);
                 offlineTimer = null;
+            }
+            if (reachabilityController) {
+                reachabilityController.abort();
+                reachabilityController = null;
             }
         };
 
@@ -204,8 +212,38 @@ const HomeScreen = () => {
             // seconds in case a newer event clears it first.
             if (state.isConnected === true && state.isInternetReachable === false) {
                 clearOfflineTimer();
-                offlineTimer = setTimeout(() => {
-                    if (isMounted) setIsOffline(true);
+                offlineTimer = setTimeout(async () => {
+                    offlineTimer = null;
+                    if (!isMounted) return;
+
+                    reachabilityController = new AbortController();
+                    const controller = reachabilityController;
+                    const timeout = setTimeout(() => controller.abort(), 4000);
+
+                    try {
+                        const response = await fetch(
+                            'https://clients3.google.com/generate_204',
+                            {
+                                cache: 'no-store',
+                                signal: controller.signal,
+                            },
+                        );
+                        if (!isMounted || reachabilityController !== controller) return;
+                        setIsOffline(!response.ok);
+                    } catch (error) {
+                        if (isMounted && reachabilityController === controller) {
+                            console.warn(
+                                '[NETWORK_DEBUG] HomeScreen manual reachability check failed.',
+                                error,
+                            );
+                            setIsOffline(true);
+                        }
+                    } finally {
+                        clearTimeout(timeout);
+                        if (reachabilityController === controller) {
+                            reachabilityController = null;
+                        }
+                    }
                 }, 4000);
                 return;
             }
@@ -476,9 +514,8 @@ const HomeScreen = () => {
                             task={item}
                             dateLabel={section.dateLabel ?? getTaskDateLabel(item.dueDate, currentDate)}
                             onPress={task => navigation.navigate('TaskDetails', { taskId: task.id })}
+                            onLongPress={setTaskActionTask}
                             onComplete={handleCompleteTask}
-                            onEdit={setEditingTask}
-                            onDelete={task => void deleteTask(task)}
                             selectionMode={isSelectingOverdueTasks && !item.isCompleted}
                             selected={selectedOverdueTaskIds.includes(item.id)}
                             onSelect={() => toggleOverdueTaskSelection(item.id)}
@@ -553,6 +590,31 @@ const HomeScreen = () => {
 
             </KeyboardAvoidingView>
 
+            <TaskActionsSheet
+                task={taskActionTask}
+                onClose={() => setTaskActionTask(null)}
+                onEdit={task => {
+                    setTaskActionTask(null);
+                    setEditingTask(task);
+                }}
+                onDelete={task => {
+                    setTaskActionTask(null);
+                    setTaskToDelete(task);
+                }}
+            />
+            <ConfirmationModal
+                visible={taskToDelete !== null}
+                title="Delete this task?"
+                message={taskToDelete?.title ?? ''}
+                confirmText="Delete"
+                confirmVariant="danger"
+                onCancel={() => setTaskToDelete(null)}
+                onConfirm={() => {
+                    const task = taskToDelete;
+                    setTaskToDelete(null);
+                    if (task) void deleteTask(task);
+                }}
+            />
 
             <AppButton
                 style={[

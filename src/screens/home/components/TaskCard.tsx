@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import AppButton from '../../../components/AppButton';
@@ -7,15 +7,13 @@ import { taskTheme } from '../../../core/theme/taskTheme';
 import { formatTime12Hour, formatUpcomingDate } from '../../../core/utils/dateTime';
 import { RF, RS } from '../../../core/utils/responsive';
 import type { Task } from '../home.types';
-import ConfirmationModal from './ConfirmationModal';
 
 interface TaskCardProps {
     task: Task;
     dateLabel: string;
     onPress: (task: Task) => void;
+    onLongPress: (task: Task) => void;
     onComplete: (task: Task) => void;
-    onEdit: (task: Task) => void;
-    onDelete: (task: Task) => void;
     selectionMode?: boolean;
     selected?: boolean;
     onSelect?: () => void;
@@ -25,14 +23,12 @@ const TaskCard = ({
     task,
     dateLabel,
     onPress,
+    onLongPress,
     onComplete,
-    onEdit,
-    onDelete,
     selectionMode = false,
     selected = false,
     onSelect,
 }: TaskCardProps) => {
-    const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
     const displayDateLabel = dateLabel === 'Upcoming' && task.dueDate
         ? formatUpcomingDate(task.dueDate)
         : dateLabel;
@@ -70,11 +66,18 @@ const TaskCard = ({
                         if (selectionMode) onSelect?.();
                         else onPress(task);
                     }}
+                    onLongPress={() => {
+                        if (!selectionMode) onLongPress(task);
+                    }}
+                    delayLongPress={1700}
                     accessibilityRole={selectionMode ? 'checkbox' : 'button'}
                     accessibilityState={selectionMode ? { checked: selected } : undefined}
                     accessibilityLabel={selectionMode
                         ? `${selected ? 'Deselect' : 'Select'} task to move: ${task.title}`
                         : `View task: ${task.title}`}
+                    accessibilityHint={
+                        selectionMode ? undefined : 'Press and hold for Edit or Delete options.'
+                    }
                 >
                     <AppText style={[styles.title, task.isCompleted && styles.completedTitle]}>
                         {task.title}
@@ -90,33 +93,7 @@ const TaskCard = ({
                         </AppText>
                     </View>
                 </AppButton>
-                {/*
-                <View style={styles.actions}>
-                    <AppButton onPress={() => onEdit(task)} accessibilityRole="button">
-                        <AppText style={styles.action}>Edit / reschedule</AppText>
-                    </AppButton>
-                    <AppButton
-                        onPress={() => setIsConfirmingDelete(true)}
-                        accessibilityRole="button"
-                    >
-                        <AppText style={styles.deleteAction}>Delete</AppText>
-                    </AppButton>
-                </View>
-                */}
             </View>
-
-            <ConfirmationModal
-                visible={isConfirmingDelete}
-                title="Delete this task?"
-                message={task.title}
-                confirmText="Delete"
-                confirmVariant="danger"
-                onCancel={() => setIsConfirmingDelete(false)}
-                onConfirm={() => {
-                    setIsConfirmingDelete(false);
-                    onDelete(task);
-                }}
-            />
         </View>
     );
 };
@@ -182,21 +159,6 @@ const styles = StyleSheet.create({
     dateLabel: {
         color: taskTheme.colors.textSecondary,
         fontSize: RF(12),
-        fontWeight: '600',
-    },
-    actions: {
-        flexDirection: 'row',
-        gap: RS(taskTheme.spacing.lg),
-        marginTop: RS(taskTheme.spacing.md),
-    },
-    action: {
-        color: taskTheme.colors.primary,
-        fontSize: RF(13),
-        fontWeight: '600',
-    },
-    deleteAction: {
-        color: taskTheme.colors.danger,
-        fontSize: RF(13),
         fontWeight: '600',
     },
 });

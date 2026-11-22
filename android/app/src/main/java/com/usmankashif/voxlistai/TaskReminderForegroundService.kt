@@ -89,8 +89,8 @@ class TaskReminderForegroundService : Service() {
   private fun buildStatusNotification() =
     NotificationCompat.Builder(this, CHANNEL_ID)
       .setSmallIcon(R.drawable.notification_icon)
-      .setContentTitle("Task reminders")
-      .setContentText(getStatusText())
+      // .setContentTitle("Task reminders")
+      // .setContentText(getStatusText())
       .setContentIntent(createContentIntent())
       .setCategory(NotificationCompat.CATEGORY_SERVICE)
       .setPriority(NotificationCompat.PRIORITY_LOW)
