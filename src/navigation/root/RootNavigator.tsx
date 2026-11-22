@@ -11,6 +11,7 @@ import * as Notifications from 'expo-notifications';
 import StackNavigator from '../main/Stack/StackNavigator';
 import type { MainStackParamList } from '../main/Stack/StackNavigator';
 import { syncTasksForUser } from '../../core/storage/taskSyncService';
+import { startForegroundReminderService } from '../../core/notifications/reminderStatus';
 import { initializeAuth } from '../../store/authThunks';
 import { selectAuth } from '../../store/slices/authSlice';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
@@ -26,6 +27,7 @@ const RootNavigator = () => {
     const { session } = useAppSelector(selectAuth);
     const navigationRef = useNavigationContainerRef<RootStackParamList>();
     const pendingNotificationTaskId = useRef<string | null>(null);
+    const reminderServiceState = useRef<'unknown' | 'starting' | 'started'>('unknown');
     const lastNotificationResponse = Notifications.useLastNotificationResponse();
 
     const navigateToTask = useCallback((taskId: string) => {
@@ -77,6 +79,21 @@ const RootNavigator = () => {
         ? session.user.id
         : null;
 
+    const refreshReminderService = useCallback(async () => {
+        if (Platform.OS !== 'android') return;
+        if (
+            reminderServiceState.current === 'started'
+            || reminderServiceState.current === 'starting'
+        ) return;
+        reminderServiceState.current = 'starting';
+        try {
+            await startForegroundReminderService();
+            reminderServiceState.current = 'started';
+        } catch (error) {
+            reminderServiceState.current = 'unknown';
+            console.error('Could not update the foreground reminder service.', error);
+        }
+    }, []);
 
 
 
@@ -121,11 +138,9 @@ const RootNavigator = () => {
 
 
 
-
     useEffect(() => {
-        if (!userId) return undefined;
-
         const sync = () => {
+            if (!userId) return;
             void syncTasksForUser(userId).catch(error => {
                 console.error('Task sync failed; local changes are still saved.', error);
             });
@@ -133,6 +148,13 @@ const RootNavigator = () => {
 
         let isOnline = false;
         let offlineTimer: ReturnType<typeof setTimeout> | null = null;
+        void refreshReminderService();
+        const appStateSubscription = AppState.addEventListener('change', state => {
+            if (state === 'active') {
+                void refreshReminderService();
+                if (isOnline) sync();
+            }
+        });
 
         const clearOfflineTimer = () => {
             if (offlineTimer) {
@@ -173,24 +195,23 @@ const RootNavigator = () => {
             if (isOnline && !wasOnline) sync();
         };
 
-        const networkSubscription = Network.addNetworkStateListener(
-            state => updateNetworkState(state, 'listener'),
-        );
-        void Network.getNetworkStateAsync()
-            .then(state => updateNetworkState(state, 'initial'))
-            .catch(error => {
-                console.error('Could not determine network availability for task sync.', error);
-            });
-        const appStateSubscription = AppState.addEventListener('change', state => {
-            if (state === 'active' && isOnline) sync();
-        });
+        const networkSubscription = userId
+            ? Network.addNetworkStateListener(state => updateNetworkState(state, 'listener'))
+            : null;
+        if (userId) {
+            void Network.getNetworkStateAsync()
+                .then(state => updateNetworkState(state, 'initial'))
+                .catch(error => {
+                    console.error('Could not determine network availability for task sync.', error);
+                });
+        }
 
         return () => {
             clearOfflineTimer();
-            networkSubscription.remove();
+            networkSubscription?.remove();
             appStateSubscription.remove();
         };
-    }, [userId]);
+    }, [refreshReminderService, userId]);
 
 
 

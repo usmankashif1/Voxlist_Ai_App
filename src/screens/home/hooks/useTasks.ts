@@ -8,7 +8,12 @@ import { AppState, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { selectAuth } from '../../../store/slices/authSlice';
 import { useAppSelector } from '../../../store/hooks';
-import { cancelTaskReminder, scheduleTaskReminder } from '../../../core/notifications/taskReminderService';
+import {
+    cancelTaskReminder,
+    isTaskReminderActive,
+    scheduleTaskReminder,
+} from '../../../core/notifications/taskReminderService';
+import { setDueTaskCount } from '../../../core/notifications/reminderStatus';
 import { ANDROID_CHANNEL_ID } from '../../../core/permissions/permissionService';
 import {
     deleteStoredTask,
@@ -39,6 +44,18 @@ const hideStartupSplash = (): void => {
         startupSplashHidden = false;
         console.error('Could not hide the splash screen after local task loading.', error);
     });
+};
+
+const publishIncompleteTaskCount = async (
+    userId: string | null,
+    tasks?: Task[],
+): Promise<void> => {
+    try {
+        const currentTasks = tasks ?? await getStoredTasks(userId);
+        await setDueTaskCount(currentTasks.filter(task => !task.isCompleted).length);
+    } catch (error) {
+        console.error('Could not update the foreground incomplete-task count.', error);
+    }
 };
 
 const scheduleAndStoreReminder = async (task: Task) => {
@@ -103,10 +120,7 @@ const reconcileTaskRemindersNow = async (
         const dueAt = task.dueDate && task.dueTime
             ? getLocalDueDate(task.dueDate, task.dueTime)
             : null;
-        const shouldSchedule = task.reminderEnabled
-            && !task.isCompleted
-            && dueAt !== null
-            && dueAt.getTime() > Date.now();
+        const shouldSchedule = dueAt !== null && isTaskReminderActive(task);
 
         if (!shouldSchedule) {
             if (scheduledForTask.length || task.notificationId) {
@@ -268,6 +282,7 @@ const useTasks = () => {
                     setItems(storedTasks);
                     setLoading(false);
                     hideStartupSplash();
+                    await publishIncompleteTaskCount(userId, storedTasks);
 
                     try {
                         const result = await reconcileTaskReminders(userId);
@@ -318,6 +333,8 @@ const useTasks = () => {
         void reload();
     }), [reload]);
 
+
+
     useEffect(() => {
         const subscription = AppState.addEventListener('change', state => {
             if (state === 'active') void reload();
@@ -330,6 +347,7 @@ const useTasks = () => {
         try {
             const createdTasks = await insertTasks(drafts, userId);
             setItems(current => [...createdTasks, ...current]);
+            await publishIncompleteTaskCount(userId);
             requestSync();
             void reload();
             return true;
@@ -429,9 +447,10 @@ const useTasks = () => {
             return;
         }
 
+        await publishIncompleteTaskCount(userId);
         await reload();
         requestSync();
-    }, [invalidatePendingReload, reload, requestSync]);
+    }, [invalidatePendingReload, reload, requestSync, userId]);
 
     const toggleSubtaskCompletion = useCallback(async (
         task: Task,
@@ -487,6 +506,7 @@ const useTasks = () => {
             setError("We couldn't delete your task. Please try again.");
             return false;
         }
+        await publishIncompleteTaskCount(userId);
         let cancellationError: string | null = null;
         if (task.notificationId) {
             try {
@@ -500,7 +520,7 @@ const useTasks = () => {
         requestSync();
         if (cancellationError) setError(cancellationError);
         return true;
-    }, [invalidatePendingReload, reload, requestSync]);
+    }, [invalidatePendingReload, reload, requestSync, userId]);
 
     return {
         items,

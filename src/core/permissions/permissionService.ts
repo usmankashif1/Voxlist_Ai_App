@@ -75,7 +75,7 @@ export const prepareNotificationChannel = async (): Promise<void> => {
 
     await setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
         name: 'Task reminders',
-        importance: AndroidImportance.HIGH,
+        importance: AndroidImportance.MAX,
         enableVibrate: true,
         vibrationPattern: [0, 250, 250, 250],
     });

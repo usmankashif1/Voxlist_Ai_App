@@ -19,6 +19,16 @@ export interface ScheduledTaskReminder {
     exactDelivery: boolean;
 }
 
+export const isTaskReminderActive = (
+    task: Task,
+    now = Date.now(),
+): boolean => {
+    if (!task.reminderEnabled || task.isCompleted || !task.dueDate || !task.dueTime) {
+        return false;
+    }
+    return getLocalDueDate(task.dueDate, task.dueTime).getTime() > now;
+};
+
 export const scheduleTaskReminder = async (
     task: Task,
 ): Promise<ScheduledTaskReminder | null> => {
@@ -54,7 +64,7 @@ export const scheduleTaskReminder = async (
             body,
             sound: 'default',
             ...(Platform.OS === 'android'
-                ? { priority: AndroidNotificationPriority.HIGH }
+                ? { priority: AndroidNotificationPriority.MAX }
                 : {}),
             data: {
                 taskId: task.id,
