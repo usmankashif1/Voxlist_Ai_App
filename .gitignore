@@ -17,6 +17,7 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+*.keystore
 
 # Metro
 .metro-health-check*
@@ -34,9 +35,24 @@ yarn-error.*
 .env
 .env*.local
 
+# IDE
+/.idea/
+
 # typescript
 *.tsbuildinfo
 
-# generated native folders
+# iOS generated native folder
 /ios
-/android
+
+# Android local configuration, signing material, and build output
+/android/.gradle/
+/android/.idea/
+/android/.kotlin/
+/android/local.properties
+/android/build/
+/android/app/build/
+/android/app/.cxx/
+/android/keystore.properties
+/android/app/debug.keystore
+/android/app/voxlistai
+/android/app/release/
