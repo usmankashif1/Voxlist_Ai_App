@@ -340,12 +340,31 @@ export const deleteStoredTask = async (id: string): Promise<void> => {
         return;
     }
 
+    const updatedAt = new Date().toISOString();
     await database.runAsync(
         `UPDATE tasks SET is_deleted = 1, sync_status = 'deleted', updated_at = ?
         WHERE id = ?`,
-        new Date().toISOString(),
+        updatedAt,
         id,
     );
+};
+
+export const restoreStoredDeletedTask = async (
+    id: string,
+    userId: string,
+    deletedAt: string,
+): Promise<boolean> => {
+    const database = await getDatabase();
+    const result = await database.runAsync(
+        `UPDATE tasks SET is_deleted = 0, sync_status = 'pending', updated_at = ?
+        WHERE id = ? AND owner_id = ? AND sync_status = 'deleted'
+        AND is_deleted = 1 AND updated_at = ?`,
+        new Date().toISOString(),
+        id,
+        userId,
+        deletedAt,
+    );
+    return result.changes > 0;
 };
 
 export const claimGuestTasks = async (userId: string): Promise<void> => {

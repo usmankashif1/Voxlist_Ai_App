@@ -69,7 +69,7 @@ const TaskCard = ({
                     onLongPress={() => {
                         if (!selectionMode) onLongPress(task);
                     }}
-                    delayLongPress={1700}
+                    delayLongPress={200}
                     accessibilityRole={selectionMode ? 'checkbox' : 'button'}
                     accessibilityState={selectionMode ? { checked: selected } : undefined}
                     accessibilityLabel={selectionMode

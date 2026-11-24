@@ -1,15 +1,31 @@
-import React, { useCallback, useEffect, useRef } from 'react';
-import { AppState, Platform } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+    ActivityIndicator,
+    AppState,
+    Platform,
+    StyleSheet,
+    View,
+} from 'react-native';
 import {
     NavigationContainer,
     useNavigationContainerRef,
     type NavigatorScreenParams,
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import * as SplashScreen from 'expo-splash-screen';
 import * as Network from 'expo-network';
 import * as Notifications from 'expo-notifications';
 import StackNavigator from '../main/Stack/StackNavigator';
 import type { MainStackParamList } from '../main/Stack/StackNavigator';
+import OnboardingNavigator from '../../screens/onboarding/navigation/OnboardingNavigator';
+import AppButton from '../../components/AppButton';
+import AppText from '../../components/AppText';
+import { taskTheme } from '../../core/theme/taskTheme';
+import { RF, RH, RS, RW } from '../../core/utils/responsive';
+import {
+    getHasCompletedOnboarding,
+    setHasCompletedOnboarding as persistOnboardingCompletion,
+} from '../../core/storage/onboardingStorage';
 import { syncTasksForUser } from '../../core/storage/taskSyncService';
 import { startForegroundReminderService } from '../../core/notifications/reminderStatus';
 import { initializeAuth } from '../../store/authThunks';
@@ -17,6 +33,7 @@ import { selectAuth } from '../../store/slices/authSlice';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 
 export type RootStackParamList = {
+    Onboarding: undefined;
     Main: NavigatorScreenParams<MainStackParamList>;
 };
 
@@ -26,12 +43,37 @@ const RootNavigator = () => {
     const dispatch = useAppDispatch();
     const { session } = useAppSelector(selectAuth);
     const navigationRef = useNavigationContainerRef<RootStackParamList>();
+    const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean | null>(null);
+    const [onboardingStorageError, setOnboardingStorageError] = useState(false);
     const pendingNotificationTaskId = useRef<string | null>(null);
     const reminderServiceState = useRef<'unknown' | 'starting' | 'started'>('unknown');
     const lastNotificationResponse = Notifications.useLastNotificationResponse();
 
+    const loadOnboardingState = useCallback(async () => {
+        setOnboardingStorageError(false);
+        try {
+            const completed = await getHasCompletedOnboarding();
+            setHasCompletedOnboarding(completed);
+            if (!completed) {
+                void SplashScreen.hideAsync().catch(error => {
+                    console.error('Could not hide the splash screen before onboarding.', error);
+                });
+            }
+        } catch (error) {
+            console.error('Could not read the onboarding completion state.', error);
+            setOnboardingStorageError(true);
+            void SplashScreen.hideAsync().catch(hideError => {
+                console.error('Could not hide the splash screen after an onboarding storage error.', hideError);
+            });
+        }
+    }, []);
+
+    useEffect(() => {
+        void loadOnboardingState();
+    }, [loadOnboardingState]);
+
     const navigateToTask = useCallback((taskId: string) => {
-        if (!navigationRef.isReady()) {
+        if (hasCompletedOnboarding !== true || !navigationRef.isReady()) {
             pendingNotificationTaskId.current = taskId;
             return;
         }
@@ -44,7 +86,7 @@ const RootNavigator = () => {
                 params: { taskId },
             },
         });
-    }, [navigationRef]);
+    }, [hasCompletedOnboarding, navigationRef]);
 
 
 
@@ -67,9 +109,16 @@ const RootNavigator = () => {
     }, [lastNotificationResponse, navigateToTask]);
 
     const handleNavigationReady = useCallback(() => {
+        if (hasCompletedOnboarding !== true) return;
         const taskId = pendingNotificationTaskId.current;
         if (taskId) navigateToTask(taskId);
-    }, [navigateToTask]);
+    }, [hasCompletedOnboarding, navigateToTask]);
+
+    useEffect(() => {
+        if (hasCompletedOnboarding !== true) return;
+        const taskId = pendingNotificationTaskId.current;
+        if (taskId) navigateToTask(taskId);
+    }, [hasCompletedOnboarding, navigateToTask]);
 
     useEffect(() => {
         dispatch(initializeAuth());
@@ -218,19 +267,88 @@ const RootNavigator = () => {
 
 
 
+    if (hasCompletedOnboarding === null) {
+        return (
+            <View style={styles.startupState}>
+                {onboardingStorageError ? (
+                    <>
+                        <AppText style={styles.startupTitle}>Could not load setup</AppText>
+                        <AppText style={styles.startupMessage}>
+                            Check your device storage, then try again.
+                        </AppText>
+                        <AppButton style={styles.retryButton} onPress={() => void loadOnboardingState()}>
+                            <AppText style={styles.retryButtonText}>Try again</AppText>
+                        </AppButton>
+                    </>
+                ) : (
+                    <ActivityIndicator color={taskTheme.colors.primary} />
+                )}
+            </View>
+        );
+    }
+
     return (
         <NavigationContainer ref={navigationRef} onReady={handleNavigationReady}>
             <Stack.Navigator
+                initialRouteName={hasCompletedOnboarding ? 'Main' : 'Onboarding'}
                 screenOptions={{
                     headerShown: false,
                     animation: Platform.OS === 'ios' ? 'simple_push' : 'ios_from_right',
                     animationDuration: 200,
                 }}
             >
+                <Stack.Screen name="Onboarding">
+                    {({ navigation }) => (
+                        <OnboardingNavigator
+                            onComplete={async () => {
+                                await persistOnboardingCompletion();
+                                setHasCompletedOnboarding(true);
+                                navigation.replace('Main', {
+                                    screen: 'HomeFlow',
+                                    params: { screen: 'Home' },
+                                });
+                            }}
+                        />
+                    )}
+                </Stack.Screen>
                 <Stack.Screen name="Main" component={StackNavigator} />
             </Stack.Navigator>
         </NavigationContainer>
     );
 };
+
+const styles = StyleSheet.create({
+    startupState: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: RW(taskTheme.spacing.xl),
+        backgroundColor: taskTheme.colors.background,
+    },
+    startupTitle: {
+        color: taskTheme.colors.text,
+        fontSize: RF(18),
+        fontWeight: '700',
+    },
+    startupMessage: {
+        color: taskTheme.colors.textSecondary,
+        fontSize: RF(14),
+        textAlign: 'center',
+        marginTop: RH(taskTheme.spacing.sm),
+    },
+    retryButton: {
+        minHeight: RH(44),
+        justifyContent: 'center',
+        paddingHorizontal: RW(taskTheme.spacing.lg),
+        marginTop: RH(taskTheme.spacing.lg),
+        borderRadius: RS(taskTheme.radius.sm),
+        backgroundColor: taskTheme.colors.primary,
+    },
+    retryButtonText: {
+        color: taskTheme.colors.white,
+        fontSize: RF(14),
+        fontWeight: '700',
+    },
+});
 
 export default RootNavigator;

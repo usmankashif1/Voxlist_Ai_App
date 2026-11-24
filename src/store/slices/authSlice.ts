@@ -1,5 +1,10 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { Session } from '@supabase/supabase-js';
+import {
+    requestPasswordReset,
+    updatePassword,
+    verifyResetCode,
+} from '../authThunks';
 import type { RootState } from '../store';
 
 export interface AuthState {
@@ -47,6 +52,48 @@ const authSlice = createSlice({
             state.error = null;
             state.notice = null;
         },
+    },
+    extraReducers: builder => {
+        builder
+            .addCase(requestPasswordReset.pending, state => {
+                state.isSubmitting = true;
+                state.error = null;
+                state.notice = null;
+            })
+            .addCase(requestPasswordReset.fulfilled, (state, action) => {
+                state.isSubmitting = false;
+                state.notice = action.payload;
+            })
+            .addCase(requestPasswordReset.rejected, (state, action) => {
+                state.isSubmitting = false;
+                state.error = action.payload ?? action.error.message ?? 'Could not request a reset code.';
+            })
+            .addCase(verifyResetCode.pending, state => {
+                state.isSubmitting = true;
+                state.error = null;
+                state.notice = null;
+            })
+            .addCase(verifyResetCode.fulfilled, state => {
+                state.isSubmitting = false;
+                state.notice = 'Set a new password.';
+            })
+            .addCase(verifyResetCode.rejected, (state, action) => {
+                state.isSubmitting = false;
+                state.error = action.payload ?? action.error.message ?? 'Could not verify the reset code.';
+            })
+            .addCase(updatePassword.pending, state => {
+                state.isSubmitting = true;
+                state.error = null;
+                state.notice = null;
+            })
+            .addCase(updatePassword.fulfilled, (state, action) => {
+                state.isSubmitting = false;
+                state.notice = action.payload;
+            })
+            .addCase(updatePassword.rejected, (state, action) => {
+                state.isSubmitting = false;
+                state.error = action.payload ?? action.error.message ?? 'Could not update the password.';
+            });
     },
 });
 

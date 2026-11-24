@@ -5,18 +5,20 @@ import {
     markTaskSynced,
     mergeCloudTask,
     removeSyncedDeletedTask,
+    restoreStoredDeletedTask,
     toCloudTask,
     type CloudTask,
 } from './taskStorage';
 
-type TaskChangeListener = () => void;
+type TaskChangeEvent = { type: 'refresh' } | { type: 'deleted'; taskId: string };
+type TaskChangeListener = (event: TaskChangeEvent) => void;
 
 const listeners = new Set<TaskChangeListener>();
 const activeSyncs = new Map<string, Promise<void>>();
 const requestedSyncs = new Set<string>();
 
-export const notifyTaskChanges = (): void => {
-    listeners.forEach(listener => listener());
+export const notifyTaskChanges = (event: TaskChangeEvent = { type: 'refresh' }): void => {
+    listeners.forEach(listener => listener(event));
 };
 
 export const subscribeToTaskChanges = (listener: TaskChangeListener) => {
@@ -50,6 +52,39 @@ const performTaskSync = async (userId: string): Promise<void> => {
     await claimGuestTasks(userId);
 
     const client = getSupabaseClient();
+    const pendingDeletions = await getPendingSyncTasks(userId);
+    for (const task of pendingDeletions) {
+        if (task.sync_status !== 'deleted') continue;
+
+        const { error } = await client
+            .from('tasks')
+            .delete()
+            .eq('id', task.id)
+            .eq('user_id', userId);
+        if (error) {
+            let restored: boolean;
+            try {
+                restored = await restoreStoredDeletedTask(
+                    task.id,
+                    userId,
+                    task.updated_at,
+                );
+            } catch (restoreError) {
+                const restoreMessage = restoreError instanceof Error
+                    ? restoreError.message
+                    : String(restoreError);
+                throw new Error(
+                    `Could not delete task ${task.id} from the account: ${error.message}. `
+                    + `Could not restore it locally: ${restoreMessage}`,
+                );
+            }
+            if (restored) notifyTaskChanges();
+            throw new Error(`Could not delete task ${task.id} from the account: ${error.message}`);
+        }
+
+        await removeSyncedDeletedTask(task.id, userId, task.updated_at);
+    }
+
     const pageSize = 500;
     let offset = 0;
     while (true) {
@@ -72,21 +107,6 @@ const performTaskSync = async (userId: string): Promise<void> => {
     }
 
     const pendingTasks = await getPendingSyncTasks(userId);
-    for (const task of pendingTasks) {
-        if (task.sync_status !== 'deleted') continue;
-
-        const { error } = await client
-            .from('tasks')
-            .delete()
-            .eq('id', task.id)
-            .eq('user_id', userId);
-        if (error) {
-            throw new Error(`Could not delete task ${task.id} from the account: ${error.message}`);
-        }
-
-        await removeSyncedDeletedTask(task.id, userId, task.updated_at);
-    }
-
     const pendingUploads = pendingTasks.filter(task => task.sync_status === 'pending');
     const uploadBatchSize = 100;
     for (let index = 0; index < pendingUploads.length; index += uploadBatchSize) {

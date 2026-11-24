@@ -21,7 +21,10 @@ import type { HomeStackParamList } from '../../home/navigation/HomeNavigator';
 const LoginScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
     const dispatch = useAppDispatch();
-    const { session, error, initializationError, isSubmitting } = useAppSelector(selectAuth);
+    const {
+        session,
+        isSubmitting,
+    } = useAppSelector(selectAuth);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const passwordInput = useRef<React.ElementRef<typeof TextInput>>(null);
@@ -79,10 +82,15 @@ const LoginScreen = () => {
                     onSubmitEditing={handleLogin}
                     returnKeyType="go"
                 />
-
-                {error || initializationError ? (
-                    <AppText style={styles.error}>{error ?? initializationError}</AppText>
-                ) : null}
+                <AppButton
+                    style={styles.forgotPasswordButton}
+                    onPress={() => navigation.navigate('ForgotPassword')}
+                    disabled={isSubmitting}
+                    accessibilityRole="button"
+                    accessibilityLabel="Forgot password"
+                >
+                    <AppText style={styles.forgotPasswordText}>Forgot password?</AppText>
+                </AppButton>
 
                 <AppButton
                     style={[styles.primaryButton, isSubmitting && styles.disabledButton]}
@@ -133,6 +141,15 @@ const styles = StyleSheet.create({
         fontSize: RF(15),
         paddingHorizontal: RW(taskTheme.spacing.lg),
     },
+    forgotPasswordButton: {
+        alignSelf: 'flex-end',
+        marginTop: -RH(taskTheme.spacing.sm),
+    },
+    forgotPasswordText: {
+        color: taskTheme.colors.textSecondary,
+        fontSize: RF(13),
+        fontWeight: '600',
+    },
     primaryButton: {
         minHeight: RH(52),
         alignItems: 'center',
@@ -172,11 +189,6 @@ const styles = StyleSheet.create({
         color: taskTheme.colors.textSecondary,
         fontSize: RF(14),
         fontWeight: '600',
-    },
-    error: {
-        color: taskTheme.colors.danger,
-        fontSize: RF(13),
-        lineHeight: RF(19),
     },
 });
 

@@ -1,3 +1,4 @@
+import { createAsyncThunk } from '@reduxjs/toolkit';
 import type { Session, Subscription } from '@supabase/supabase-js';
 import { createSignUpClient, getSupabaseClient } from '../core/auth/supabase';
 import { getFunctionErrorMessage } from '../core/api/edgeFunctionError';
@@ -17,8 +18,97 @@ interface Credentials {
     password: string;
 }
 
+interface ResetCodeCredentials {
+    email: string;
+    code: string;
+}
+
 let authSubscription: Subscription | null = null;
 let anonymousSessionRequest: Promise<Session> | null = null;
+
+export const requestPasswordReset = createAsyncThunk<
+    string,
+    string,
+    { rejectValue: string }
+>(
+    'auth/requestPasswordReset',
+    async (email, { rejectWithValue }) => {
+        const normalizedEmail = email.trim();
+        if (!normalizedEmail) {
+            return rejectWithValue('Enter your email address.');
+        }
+
+        console.info('[Auth] Password reset code request started.');
+
+        try {
+            const { error } = await getSupabaseClient().auth.resetPasswordForEmail(normalizedEmail);
+            if (error) {
+                console.error('[Auth] Password reset code request failed.', {
+                    status: error.status ?? null,
+                    code: error.code ?? null,
+                    message: error.message ?? null,
+                });
+                return rejectWithValue(getErrorMessage(error));
+            }
+
+            console.info('[Auth] Supabase accepted the password reset code request.');
+            return 'If an account exists, we sent a 6-digit code.';
+        } catch (error) {
+            console.error('[Auth] Password reset code request failed unexpectedly.', {
+                errorName: error instanceof Error ? error.name : 'UnknownError',
+                message: error instanceof Error ? error.message : 'Unknown error occurred.',
+            });
+            return rejectWithValue(getErrorMessage(error));
+        }
+    },
+);
+
+export const verifyResetCode = createAsyncThunk<
+    void,
+    ResetCodeCredentials,
+    { rejectValue: string }
+>(
+    'auth/verifyResetCode',
+    async ({ email, code }, { dispatch, rejectWithValue }) => {
+        const normalizedEmail = email.trim();
+        const normalizedCode = code.trim();
+        if (!normalizedEmail || !/^\d{6}$/.test(normalizedCode)) {
+            return rejectWithValue('Enter the 6-digit code sent to your email.');
+        }
+
+        const { data, error } = await getSupabaseClient().auth.verifyOtp({
+            email: normalizedEmail,
+            token: normalizedCode,
+            type: 'recovery',
+        });
+        if (error) return rejectWithValue(getErrorMessage(error));
+        if (!data.session) {
+            return rejectWithValue('Could not start password recovery. Request a new code and try again.');
+        }
+
+        dispatch(setSession(data.session));
+    },
+);
+
+export const updatePassword = createAsyncThunk<
+    string,
+    string,
+    { rejectValue: string }
+>(
+    'auth/updatePassword',
+    async (newPassword, { rejectWithValue }) => {
+        if (newPassword.length < 8) {
+            return rejectWithValue('Password must be at least 8 characters long.');
+        }
+
+        const { error } = await getSupabaseClient().auth.updateUser({
+            password: newPassword,
+        });
+        if (error) return rejectWithValue(getErrorMessage(error));
+
+        return 'Log in with your new password.';
+    },
+);
 
 const createAnonymousSession = (): Promise<Session> => {
     if (!anonymousSessionRequest) {
@@ -125,7 +215,7 @@ export const signUp = (credentials: Credentials) => async (
 
         if (!data.session) {
             dispatch(setNotice(
-                'Check your email to confirm your account, then log in. Your local tasks will sync after you sign in.',
+                'Check your email to finish signing up.',
             ));
             return false;
         }

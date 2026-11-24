@@ -11,6 +11,7 @@ import { useAppSelector } from '../../../store/hooks';
 import {
     cancelTaskReminder,
     isTaskReminderActive,
+    notifyReminderEligibleTaskSaved,
     scheduleTaskReminder,
 } from '../../../core/notifications/taskReminderService';
 import { setDueTaskCount } from '../../../core/notifications/reminderStatus';
@@ -251,6 +252,15 @@ const reconcileTaskReminders = async (
     }
 };
 
+const notifyBatteryPromptForEligibleTasks = (tasks: Task[]): void => {
+    if (
+        Platform.OS === 'android'
+        && tasks.some(task => isTaskReminderActive(task))
+    ) {
+        notifyReminderEligibleTaskSaved();
+    }
+};
+
 const useTasks = () => {
     const { session, isLoading: isAuthLoading } = useAppSelector(selectAuth);
     const userId = session && session.user.is_anonymous !== true
@@ -329,9 +339,14 @@ const useTasks = () => {
         void reload();
     }, [reload]);
 
-    useEffect(() => subscribeToTaskChanges(() => {
+    useEffect(() => subscribeToTaskChanges(event => {
+        if (event.type === 'deleted') {
+            invalidatePendingReload();
+            setItems(current => current.filter(task => task.id !== event.taskId));
+            return;
+        }
         void reload();
-    }), [reload]);
+    }), [invalidatePendingReload, reload]);
 
 
 
@@ -347,6 +362,7 @@ const useTasks = () => {
         try {
             const createdTasks = await insertTasks(drafts, userId);
             setItems(current => [...createdTasks, ...current]);
+            notifyBatteryPromptForEligibleTasks(createdTasks);
             await publishIncompleteTaskCount(userId);
             requestSync();
             void reload();
@@ -385,6 +401,7 @@ const useTasks = () => {
             return false;
         }
         notifyTaskChanges();
+        notifyBatteryPromptForEligibleTasks([taskWithoutReminder]);
         requestSync();
         return true;
     }, [items, invalidatePendingReload, requestSync]);
@@ -419,6 +436,7 @@ const useTasks = () => {
             return false;
         }
 
+        notifyBatteryPromptForEligibleTasks(normalizedTasks);
         requestSync();
         void reload();
         return true;
@@ -496,31 +514,29 @@ const useTasks = () => {
         setError(null);
         invalidatePendingReload();
         setItems(current => current.filter(item => item.id !== task.id));
+        notifyTaskChanges({ type: 'deleted', taskId: task.id });
         try {
             await deleteStoredTask(task.id);
         } catch (deleteError) {
             setItems(current => current.some(item => item.id === task.id)
                 ? current
                 : [...current, task]);
+            notifyTaskChanges();
             console.error('Could not delete task.', deleteError);
             setError("We couldn't delete your task. Please try again.");
             return false;
         }
-        await publishIncompleteTaskCount(userId);
-        let cancellationError: string | null = null;
-        if (task.notificationId) {
-            try {
-                await cancelTaskReminder(task.notificationId);
-            } catch (cancelError) {
-                console.error(`Could not cancel the reminder for deleted task ${task.id}.`, cancelError);
-                cancellationError = 'The task was deleted, but its reminder may still go off.';
-            }
-        }
-        await reload();
+        notifyTaskChanges();
         requestSync();
-        if (cancellationError) setError(cancellationError);
+        void publishIncompleteTaskCount(userId);
+        if (task.notificationId) {
+            void cancelTaskReminder(task.notificationId).catch(cancelError => {
+                console.error(`Could not cancel the reminder for deleted task ${task.id}.`, cancelError);
+                setError('The task was deleted, but its reminder may still go off.');
+            });
+        }
         return true;
-    }, [invalidatePendingReload, reload, requestSync, userId]);
+    }, [invalidatePendingReload, requestSync, userId]);
 
     return {
         items,

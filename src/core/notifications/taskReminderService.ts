@@ -19,6 +19,22 @@ export interface ScheduledTaskReminder {
     exactDelivery: boolean;
 }
 
+type ReminderEligibleTaskSavedListener = () => void;
+const reminderEligibleTaskSavedListeners = new Set<ReminderEligibleTaskSavedListener>();
+
+export const subscribeToReminderEligibleTaskSaves = (
+    listener: ReminderEligibleTaskSavedListener,
+): (() => void) => {
+    reminderEligibleTaskSavedListeners.add(listener);
+    return () => {
+        reminderEligibleTaskSavedListeners.delete(listener);
+    };
+};
+
+export const notifyReminderEligibleTaskSaved = (): void => {
+    reminderEligibleTaskSavedListeners.forEach(listener => listener());
+};
+
 export const isTaskReminderActive = (
     task: Task,
     now = Date.now(),

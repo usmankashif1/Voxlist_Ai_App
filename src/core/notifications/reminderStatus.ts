@@ -4,6 +4,8 @@ interface ReminderStatusNativeModule {
     setDueTaskCount: (count: number) => Promise<void>;
     startForegroundReminderService: () => Promise<void>;
     stopForegroundReminderService: () => Promise<void>;
+    isIgnoringBatteryOptimizations: () => Promise<boolean>;
+    requestBatteryOptimizationExemption: () => Promise<void>;
 }
 
 const nativeModule = NativeModules.ReminderStatus as
@@ -30,4 +32,14 @@ export const startForegroundReminderService = async (): Promise<void> => {
 export const stopForegroundReminderService = async (): Promise<void> => {
     if (Platform.OS !== 'android') return;
     await getNativeModule().stopForegroundReminderService();
+};
+
+export const isIgnoringBatteryOptimizations = async (): Promise<boolean> => {
+    if (Platform.OS !== 'android') return true;
+    return getNativeModule().isIgnoringBatteryOptimizations();
+};
+
+export const requestBatteryOptimizationExemption = async (): Promise<void> => {
+    if (Platform.OS !== 'android') return;
+    await getNativeModule().requestBatteryOptimizationExemption();
 };

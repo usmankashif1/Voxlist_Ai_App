@@ -5,6 +5,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Provider } from 'react-redux';
 import { prepareNotificationChannel } from './src/core/permissions/permissionService';
+import { AppToast, AuthToastListener } from './src/components/AuthToastNotifications';
 import RootNavigator from './src/navigation/root/RootNavigator';
 import { store } from './src/store/store';
 
@@ -33,6 +34,8 @@ const App = () => {
             <SafeAreaProvider>
                 <StatusBar barStyle="dark-content" />
                 <RootNavigator />
+                <AuthToastListener />
+                <AppToast />
             </SafeAreaProvider>
         </Provider>
     );

@@ -21,7 +21,7 @@ import type { HomeStackParamList } from '../../home/navigation/HomeNavigator';
 const SignUpScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
     const dispatch = useAppDispatch();
-    const { error, isSubmitting, notice } = useAppSelector(selectAuth);
+    const { isSubmitting } = useAppSelector(selectAuth);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const passwordInput = useRef<React.ElementRef<typeof TextInput>>(null);
@@ -72,9 +72,6 @@ const SignUpScreen = () => {
                     onSubmitEditing={handleSignUp}
                     returnKeyType="go"
                 />
-
-                {error ? <AppText style={styles.error}>{error}</AppText> : null}
-                {notice ? <AppText style={styles.success}>{notice}</AppText> : null}
 
                 <AppButton
                     style={[styles.primaryButton, isSubmitting && styles.disabledButton]}
@@ -129,16 +126,6 @@ const styles = StyleSheet.create({
         color: taskTheme.colors.white,
         fontSize: RF(15),
         fontWeight: '700',
-    },
-    error: {
-        color: taskTheme.colors.danger,
-        fontSize: RF(13),
-        lineHeight: RF(19),
-    },
-    success: {
-        color: taskTheme.colors.success,
-        fontSize: RF(13),
-        lineHeight: RF(19),
     },
     loginLink: {
         minHeight: RH(48),

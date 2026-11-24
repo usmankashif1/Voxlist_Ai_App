@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
     Alert,
+    LayoutAnimation,
     KeyboardAvoidingView,
     Platform,
     RefreshControl,
     SectionList,
     StyleSheet,
     Image,
+    UIManager,
     View,
 } from 'react-native';
 import * as Network from 'expo-network';
@@ -23,13 +25,14 @@ import MoveOverdueTasksModal from '../components/MoveOverdueTasksModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import VoiceTaskReviewModal from '../components/VoiceTaskReviewModal';
 import InternetRequiredSheet from '../components/InternetRequiredSheet';
+import HomeTourOverlay, { type HomeTourTarget } from '../components/HomeTourOverlay';
+import BatteryOptimizationPrompt from '../components/BatteryOptimizationPrompt';
 import type { ExtractedTask, Task, TaskCategory, TaskDateLabel, TaskSection } from '../home.types';
 import useTasks from '../hooks/useTasks';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
-import * as SecureStore from 'expo-secure-store';
 import { ensureVoiceSession } from '../../../store/authThunks';
 import { useAppDispatch } from '../../../store/hooks';
 import {
@@ -37,27 +40,38 @@ import {
     reserveVoiceRequest,
     type VoiceUsageDecision,
 } from '../../../core/api/voiceUsageService';
-import {
-    requestMicrophonePermission,
-    requestNotificationPermission,
-} from '../../../core/permissions/permissionService';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { HomeStackParamList } from '../navigation/HomeNavigator';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-
+import {
+    claimBatteryOptimizationPrompt,
+    getHasSeenHomeTour as readHasSeenHomeTour,
+    setHasSeenHomeTour as persistHomeTourCompletion,
+} from '../../../core/storage/onboardingStorage';
+import {
+    isIgnoringBatteryOptimizations,
+    requestBatteryOptimizationExemption,
+} from '../../../core/notifications/reminderStatus';
+import { subscribeToReminderEligibleTaskSaves } from '../../../core/notifications/taskReminderService';
 
 const sectionOrder: TaskDateLabel[] = ['Overdue', 'Today', 'Tomorrow', 'Upcoming', 'No Date'];
 const categories: TaskCategory[] = [...sectionOrder, 'Completed'];
-const HOME_PERMISSIONS_PROMPTED_KEY = 'home-permissions-prompted-v2';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 
 const getCategorySections = (
     tasks: Task[],
     category: TaskCategory,
     currentDate: Date,
+    delayedCompletedTaskIds: ReadonlySet<string>,
 ): TaskSection[] => {
     if (category === 'Completed') {
-        const completedTasks = tasks.filter(task => task.isCompleted);
+        const completedTasks = tasks.filter(
+            task => task.isCompleted && !delayedCompletedTaskIds.has(task.id),
+        );
         return completedTasks.length
             ? [{ title: 'Completed', data: completedTasks }]
             : [];
@@ -66,8 +80,12 @@ const getCategorySections = (
     const categoryTasks = tasks.filter(
         task => getTaskDateLabel(task.dueDate, currentDate) === category,
     );
-    const activeTasks = categoryTasks.filter(task => !task.isCompleted);
-    const completedTasks = categoryTasks.filter(task => task.isCompleted);
+    const activeTasks = categoryTasks.filter(
+        task => !task.isCompleted || delayedCompletedTaskIds.has(task.id),
+    );
+    const completedTasks = categoryTasks.filter(
+        task => task.isCompleted && !delayedCompletedTaskIds.has(task.id),
+    );
 
     return [
         ...(activeTasks.length
@@ -84,6 +102,9 @@ const HomeScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
     const dispatch = useAppDispatch();
     const insets = useSafeAreaInsets();
+    const [isBatteryPromptQueued, setIsBatteryPromptQueued] = useState(false);
+    const [isBatteryOptimizationPromptOpen, setIsBatteryOptimizationPromptOpen] = useState(false);
+    const batteryPromptCheckInProgress = useRef(false);
     const {
         items,
         loading,
@@ -96,6 +117,12 @@ const HomeScreen = () => {
         deleteTask,
     } = useTasks();
     const [currentDate, setCurrentDate] = useState(() => new Date());
+    const [delayedCompletedTaskIds, setDelayedCompletedTaskIds] = useState<Set<string>>(
+        () => new Set(),
+    );
+    const completionTransitionTimers = useRef(
+        new Map<string, ReturnType<typeof setTimeout>>(),
+    );
 
     useFocusEffect(useCallback(() => {
         setCurrentDate(new Date());
@@ -117,8 +144,38 @@ const HomeScreen = () => {
         return () => clearTimeout(timeout);
     }, [currentDate]);
 
+    useEffect(() => () => {
+        completionTransitionTimers.current.forEach(timer => clearTimeout(timer));
+        completionTransitionTimers.current.clear();
+    }, []);
 
     const handleCompleteTask = useCallback((task: Task) => {
+        const existingTimer = completionTransitionTimers.current.get(task.id);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+            completionTransitionTimers.current.delete(task.id);
+        }
+
+        if (task.isCompleted) {
+            setDelayedCompletedTaskIds(current => {
+                const next = new Set(current);
+                next.delete(task.id);
+                return next;
+            });
+        } else {
+            setDelayedCompletedTaskIds(current => new Set(current).add(task.id));
+            const timer = setTimeout(() => {
+                completionTransitionTimers.current.delete(task.id);
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setDelayedCompletedTaskIds(current => {
+                    const next = new Set(current);
+                    next.delete(task.id);
+                    return next;
+                });
+            }, 1000);
+            completionTransitionTimers.current.set(task.id, timer);
+        }
+
         void toggleTaskCompletion(task);
     }, [toggleTaskCompletion]);
 
@@ -142,8 +199,64 @@ const HomeScreen = () => {
     const [selectedOverdueTaskIds, setSelectedOverdueTaskIds] = useState<string[]>([]);
     const [isMoveOverdueModalOpen, setIsMoveOverdueModalOpen] = useState(false);
     const [isMovingOverdueTasks, setIsMovingOverdueTasks] = useState(false);
-    const hasStartedPermissionCheck = useRef(false);
+    const [hasSeenHomeTour, setHasSeenHomeTour] = useState<boolean | null>(null);
+    const [homeTourStep, setHomeTourStep] = useState<1 | 2 | null>(null);
+    const [isCompletingHomeTour, setIsCompletingHomeTour] = useState(false);
+    const [tourTargets, setTourTargets] = useState<{
+        microphone: HomeTourTarget | null;
+        createTask: HomeTourTarget | null;
+    }>({
+        microphone: null,
+        createTask: null,
+    });
+    const microphoneTargetRef = useRef<React.ElementRef<typeof View>>(null);
+    const createTaskTargetRef = useRef<React.ElementRef<typeof View>>(null);
     const isPreparingVoiceRef = useRef(false);
+
+    const measureTourTarget = useCallback((
+        target: 'microphone' | 'createTask',
+    ): Promise<HomeTourTarget | null> => new Promise(resolve => {
+        const targetRef = target === 'microphone' ? microphoneTargetRef : createTaskTargetRef;
+        const targetView = targetRef.current;
+        if (!targetView) {
+            resolve(null);
+            return;
+        }
+
+        targetView.measureInWindow((x, y, width, height) => {
+            if (width <= 0 || height <= 0) {
+                resolve(null);
+                return;
+            }
+            const measuredTarget = { x, y, width, height };
+            setTourTargets(current => {
+                const previous = current[target];
+                if (
+                    previous
+                    && previous.x === x
+                    && previous.y === y
+                    && previous.width === width
+                    && previous.height === height
+                ) return current;
+
+                return {
+                    ...current,
+                    [target]: measuredTarget,
+                };
+            });
+            resolve(measuredTarget);
+        });
+    }), []);
+
+    const handleHomeTourNext = useCallback(() => {
+        void measureTourTarget('createTask').then(target => {
+            if (!target) {
+                console.error('Could not measure the create-task button before advancing the Home tour.');
+                return;
+            }
+            setHomeTourStep(2);
+        });
+    }, [measureTourTarget]);
 
     // useEffect(() => {
     //     let isMounted = true;
@@ -275,32 +388,81 @@ const HomeScreen = () => {
 
 
     useEffect(() => {
-        if (hasStartedPermissionCheck.current) return;
-        hasStartedPermissionCheck.current = true;
+        let isMounted = true;
+        void readHasSeenHomeTour()
+            .then(seen => {
+                if (isMounted) setHasSeenHomeTour(seen);
+            })
+            .catch(error => {
+                console.error('Could not read the Home tour completion state.', error);
+                if (isMounted) setHasSeenHomeTour(true);
+            });
 
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    useEffect(() => subscribeToReminderEligibleTaskSaves(() => {
+        setIsBatteryPromptQueued(true);
+    }), []);
+
+    useEffect(() => {
+        if (
+            hasSeenHomeTour === false
+            && tourTargets.microphone
+            && tourTargets.createTask
+        ) {
+            setHomeTourStep(currentStep => currentStep ?? 1);
+        }
+    }, [hasSeenHomeTour, tourTargets]);
+
+    useEffect(() => {
+        const hasOtherModalOpen = editingTask !== null
+            || isCreateTaskOpen
+            || isVoiceModalOpen
+            || isInternetSheetOpen
+            || isMoveOverdueModalOpen
+            || isMovingOverdueTasks
+            || taskActionTask !== null
+            || taskToDelete !== null
+            || voiceQuotaNotice !== null
+            || homeTourStep !== null;
+        if (
+            !isBatteryPromptQueued
+            || Platform.OS !== 'android'
+            || hasOtherModalOpen
+            || batteryPromptCheckInProgress.current
+        ) return;
+
+        batteryPromptCheckInProgress.current = true;
         void (async () => {
             try {
-                if (await SecureStore.getItemAsync(HOME_PERMISSIONS_PROMPTED_KEY)) return;
-
-                try {
-                    await requestMicrophonePermission();
-                } catch (permissionError) {
-                    console.error('Could not request microphone permission on Home.', permissionError);
+                const alreadyExempt = await isIgnoringBatteryOptimizations();
+                const claimed = await claimBatteryOptimizationPrompt();
+                if (claimed && !alreadyExempt) {
+                    setIsBatteryOptimizationPromptOpen(true);
                 }
-
-                try {
-                    await requestNotificationPermission();
-                    await reload();
-                } catch (permissionError) {
-                    console.error('Could not request notification permission on Home.', permissionError);
-                }
-
-                await SecureStore.setItemAsync(HOME_PERMISSIONS_PROMPTED_KEY, 'true');
             } catch (error) {
-                console.error('Could not initialize Home permission requests.', error);
+                console.error('Could not prepare the battery optimization prompt.', error);
+            } finally {
+                batteryPromptCheckInProgress.current = false;
+                setIsBatteryPromptQueued(false);
             }
         })();
-    }, [reload]);
+    }, [
+        editingTask,
+        homeTourStep,
+        isBatteryPromptQueued,
+        isCreateTaskOpen,
+        isInternetSheetOpen,
+        isMoveOverdueModalOpen,
+        isMovingOverdueTasks,
+        isVoiceModalOpen,
+        taskActionTask,
+        taskToDelete,
+        voiceQuotaNotice,
+    ]);
 
 
 
@@ -311,16 +473,16 @@ const HomeScreen = () => {
         for (const task of items) {
             const category = getTaskDateLabel(task.dueDate, currentDate);
             counts.set(category, (counts.get(category) ?? 0) + 1);
-            if (task.isCompleted) {
+            if (task.isCompleted && !delayedCompletedTaskIds.has(task.id)) {
                 counts.set('Completed', (counts.get('Completed') ?? 0) + 1);
             }
         }
         return counts;
-    }, [currentDate, items]);
+    }, [currentDate, delayedCompletedTaskIds, items]);
 
     const sections = useMemo(
-        () => getCategorySections(items, selectedCategory, currentDate),
-        [currentDate, items, selectedCategory],
+        () => getCategorySections(items, selectedCategory, currentDate, delayedCompletedTaskIds),
+        [currentDate, delayedCompletedTaskIds, items, selectedCategory],
     );
     const selectedOverdueTasks = useMemo(
         () => items.filter(task => (
@@ -394,6 +556,21 @@ const HomeScreen = () => {
         }
     };
 
+    const handleCompleteHomeTour = async () => {
+        if (isCompletingHomeTour) return;
+        setIsCompletingHomeTour(true);
+        try {
+            await persistHomeTourCompletion();
+            setHasSeenHomeTour(true);
+            setHomeTourStep(null);
+        } catch (error) {
+            console.error('Could not save the Home tour completion state.', error);
+            Alert.alert('Could not save progress', 'Please try again to close the tour.');
+        } finally {
+            setIsCompletingHomeTour(false);
+        }
+    };
+
 
 
     const reserveVoiceUse = useCallback(async (): Promise<VoiceUsageDecision | null> => {
@@ -462,14 +639,20 @@ const HomeScreen = () => {
                     >
                         <FontAwesome5 name="cog" size={RS(19)} color={taskTheme.colors.text} />
                     </AppButton>
-                    <AppButton
-                        style={styles.addButton}
-                        onPress={() => setIsCreateTaskOpen(true)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Create a task"
+                    <View
+                        ref={createTaskTargetRef}
+                        collapsable={false}
+                        onLayout={() => { void measureTourTarget('createTask'); }}
                     >
-                        <AppText style={styles.addButtonText}>+</AppText>
-                    </AppButton>
+                        <AppButton
+                            style={styles.addButton}
+                            onPress={() => setIsCreateTaskOpen(true)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Create a task"
+                        >
+                            <AppText style={styles.addButtonText}>+</AppText>
+                        </AppButton>
+                    </View>
                 </View>
             </View>
 
@@ -616,22 +799,29 @@ const HomeScreen = () => {
                 }}
             />
 
-            <AppButton
+            <View
+                ref={microphoneTargetRef}
+                collapsable={false}
+                onLayout={() => { void measureTourTarget('microphone'); }}
                 style={[
-                    styles.floatingVoiceButton,
+                    styles.floatingVoiceButtonTarget,
                     { bottom: insets.bottom + RH(taskTheme.spacing.xl) },
                 ]}
-                onPress={handleVoicePress}
-                disabled={isPreparingVoice}
-                accessibilityRole="button"
-                accessibilityLabel={isPreparingVoice
-                    ? 'Preparing voice input'
-                    : 'Create tasks by voice'}
             >
-                {isPreparingVoice
-                    ? <ActivityIndicator size={RS(30)} color="white" />
-                    : <FontAwesome5 name="microphone" size={RS(26)} color="white" />}
-            </AppButton>
+                <AppButton
+                    style={styles.floatingVoiceButton}
+                    onPress={handleVoicePress}
+                    disabled={isPreparingVoice}
+                    accessibilityRole="button"
+                    accessibilityLabel={isPreparingVoice
+                        ? 'Preparing voice input'
+                        : 'Create tasks by voice'}
+                >
+                    {isPreparingVoice
+                        ? <ActivityIndicator size={RS(30)} color="white" />
+                        : <FontAwesome5 name="microphone" size={RS(26)} color="white" />}
+                </AppButton>
+            </View>
 
             <TaskEditorModal
                 key={editingTask?.id ?? (isCreateTaskOpen ? 'create' : 'closed')}
@@ -673,6 +863,21 @@ const HomeScreen = () => {
             <InternetRequiredSheet
                 visible={isInternetSheetOpen}
                 onClose={() => setIsInternetSheetOpen(false)}
+            />
+            {homeTourStep && tourTargets.microphone && tourTargets.createTask ? (
+                <HomeTourOverlay
+                    step={homeTourStep}
+                    microphoneTarget={tourTargets.microphone}
+                    createTaskTarget={tourTargets.createTask}
+                    isCompleting={isCompletingHomeTour}
+                    onNext={handleHomeTourNext}
+                    onDismiss={() => void handleCompleteHomeTour()}
+                />
+            ) : null}
+            <BatteryOptimizationPrompt
+                visible={isBatteryOptimizationPromptOpen}
+                onDismiss={() => setIsBatteryOptimizationPromptOpen(false)}
+                onAllow={requestBatteryOptimizationExemption}
             />
         </SafeAreaView>
     );
@@ -860,11 +1065,15 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         paddingHorizontal: RW(taskTheme.spacing.lg),
     },
-    floatingVoiceButton: {
+    floatingVoiceButtonTarget: {
         position: 'absolute',
         right: RW(taskTheme.spacing.xl),
         width: RS(60),
         height: RS(60),
+    },
+    floatingVoiceButton: {
+        width: '100%',
+        height: '100%',
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: RS(30),
