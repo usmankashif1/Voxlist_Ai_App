@@ -124,10 +124,13 @@ const HomeScreen = () => {
         new Map<string, ReturnType<typeof setTimeout>>(),
     );
 
+
     useFocusEffect(useCallback(() => {
         setCurrentDate(new Date());
         void reload();
     }, [reload]));
+
+
 
     useEffect(() => {
         const now = new Date();
@@ -144,11 +147,15 @@ const HomeScreen = () => {
         return () => clearTimeout(timeout);
     }, [currentDate]);
 
+
+
     useEffect(() => () => {
         completionTransitionTimers.current.forEach(timer => clearTimeout(timer));
         completionTransitionTimers.current.clear();
     }, []);
 
+
+    
     const handleCompleteTask = useCallback((task: Task) => {
         const existingTimer = completionTransitionTimers.current.get(task.id);
         if (existingTimer) {

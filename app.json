@@ -4,7 +4,7 @@
   "icon": "./src/assets/images/Logo.png",
   "android": {
     "package": "com.usmankashif.voxlistai",
-    "versionCode": 3,
+    "versionCode": 4,
     "permissions": [
       "android.permission.SCHEDULE_EXACT_ALARM",
       "android.permission.ACCESS_NETWORK_STATE",

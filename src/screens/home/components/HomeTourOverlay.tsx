@@ -162,6 +162,8 @@ const HomeTourOverlay = ({
                                     />
                                 </Mask>
                             </Defs>
+
+
                             <Rect
                                 x="0"
                                 y="0"
@@ -171,6 +173,8 @@ const HomeTourOverlay = ({
                                 opacity={0.75}
                                 mask="url(#homeTourSpotlightMask)"
                             />
+
+
                             <Circle
                                 cx={spotlightCenterX}
                                 cy={spotlightCenterY}
@@ -179,7 +183,10 @@ const HomeTourOverlay = ({
                                 stroke={taskTheme.colors.white}
                                 strokeWidth={RS(2)}
                             />
+
                         </Svg>
+
+                        
                     </View>
                     <Pressable
                         style={StyleSheet.absoluteFill}
