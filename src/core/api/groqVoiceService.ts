@@ -1,5 +1,6 @@
 import { File } from 'expo-file-system';
 import { getSupabaseClient } from '../auth/supabase';
+import { ensureInternetAvailable } from '../network/internetAccess';
 import { getFunctionErrorMessage } from './edgeFunctionError';
 
 interface TranscriptionResponse {
@@ -14,6 +15,7 @@ export const transcribeAudioWithGroq = async (
     reservationId: string,
     signal?: AbortSignal,
 ): Promise<string> => {
+    await ensureInternetAvailable();
     const formData = new FormData();
     formData.append('action', 'transcribe-audio');
     formData.append('reservationId', reservationId);

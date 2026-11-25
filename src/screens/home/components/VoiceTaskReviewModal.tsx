@@ -22,6 +22,10 @@ import type { VoiceUsageDecision } from '../../../core/api/voiceUsageService';
 import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
 import useSheetTransition from '../../../components/useSheetTransition';
+import {
+    isNetworkError,
+    showNetworkUnavailableToast,
+} from '../../../core/network/internetAccess';
 
 interface VoiceTaskReviewModalProps {
     visible: boolean;
@@ -128,6 +132,9 @@ const VoiceTaskReviewModal = ({
             }
             return decision.reservationId;
         } catch (reservationError) {
+            if (isNetworkError(reservationError)) {
+                showNetworkUnavailableToast();
+            }
             setError(getErrorMessage(reservationError));
             return null;
         }
@@ -188,6 +195,11 @@ const VoiceTaskReviewModal = ({
     const handleVoiceError = (message: string) => {
         setNoActionableTasks(false);
         console.error('Could not process voice input.', message);
+        if (isNetworkError(message)) {
+            showNetworkUnavailableToast();
+            setError('Connect to the internet and try again.');
+            return;
+        }
         if (/AI request limits could not be verified|Could not verify voice request limits/i.test(message)) {
             setError('Could not verify voice request limits. Please try again shortly.');
             return;

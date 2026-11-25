@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '../auth/supabase';
+import { ensureInternetAvailable } from '../network/internetAccess';
 import { getFunctionErrorMessage } from './edgeFunctionError';
 
 export type VoiceUsageReason = 'daily_global' | 'daily_user' | 'per_minute';
@@ -47,6 +48,7 @@ const isVoiceUsageDecision = (value: unknown): value is VoiceUsageDecision =>
         : value.reservationId === null && isVoiceUsageReason(value.reason));
 
 export const reserveVoiceRequest = async (): Promise<VoiceUsageDecision> => {
+    await ensureInternetAvailable();
     const { data, error } = await getSupabaseClient().functions.invoke<unknown>(
         'ai-proxy',
         { body: { action: 'reserve-voice-request' } },

@@ -2,6 +2,10 @@ import { createAsyncThunk } from '@reduxjs/toolkit';
 import type { Session, Subscription } from '@supabase/supabase-js';
 import { createSignUpClient, getSupabaseClient } from '../core/auth/supabase';
 import { getFunctionErrorMessage } from '../core/api/edgeFunctionError';
+import {
+    isInternetAvailable,
+    NETWORK_UNAVAILABLE_MESSAGE,
+} from '../core/network/internetAccess';
 import { getErrorMessage } from '../core/utils/errorMessage';
 import type { AppDispatch } from './store';
 import {
@@ -36,6 +40,9 @@ export const requestPasswordReset = createAsyncThunk<
         const normalizedEmail = email.trim();
         if (!normalizedEmail) {
             return rejectWithValue('Enter your email address.');
+        }
+        if (!await isInternetAvailable()) {
+            return rejectWithValue(NETWORK_UNAVAILABLE_MESSAGE);
         }
 
         console.info('[Auth] Password reset code request started.');
@@ -75,6 +82,9 @@ export const verifyResetCode = createAsyncThunk<
         if (!normalizedEmail || !/^\d{6}$/.test(normalizedCode)) {
             return rejectWithValue('Enter the 6-digit code sent to your email.');
         }
+        if (!await isInternetAvailable()) {
+            return rejectWithValue(NETWORK_UNAVAILABLE_MESSAGE);
+        }
 
         const { data, error } = await getSupabaseClient().auth.verifyOtp({
             email: normalizedEmail,
@@ -99,6 +109,9 @@ export const updatePassword = createAsyncThunk<
     async (newPassword, { rejectWithValue }) => {
         if (newPassword.length < 8) {
             return rejectWithValue('Password must be at least 8 characters long.');
+        }
+        if (!await isInternetAvailable()) {
+            return rejectWithValue(NETWORK_UNAVAILABLE_MESSAGE);
         }
 
         const { error } = await getSupabaseClient().auth.updateUser({
@@ -162,8 +175,13 @@ export const ensureVoiceSession = () => async (dispatch: AppDispatch): Promise<S
 export const signIn = (credentials: Credentials) => async (
     dispatch: AppDispatch,
 ): Promise<boolean> => {
-    dispatch(setSubmitting(true));
     dispatch(setError(null));
+    if (!await isInternetAvailable()) {
+        dispatch(setError(NETWORK_UNAVAILABLE_MESSAGE));
+        return false;
+    }
+
+    dispatch(setSubmitting(true));
 
     try {
         const { data, error } = await getSupabaseClient().auth.signInWithPassword({
@@ -184,8 +202,13 @@ export const signIn = (credentials: Credentials) => async (
 };
 
 export const continueAsGuest = () => async (dispatch: AppDispatch): Promise<void> => {
-    dispatch(setSubmitting(true));
     dispatch(setError(null));
+    if (!await isInternetAvailable()) {
+        dispatch(setError(NETWORK_UNAVAILABLE_MESSAGE));
+        return;
+    }
+
+    dispatch(setSubmitting(true));
 
     try {
         const { data, error } = await getSupabaseClient().auth.signInAnonymously();
@@ -202,9 +225,14 @@ export const continueAsGuest = () => async (dispatch: AppDispatch): Promise<void
 export const signUp = (credentials: Credentials) => async (
     dispatch: AppDispatch,
 ): Promise<boolean> => {
-    dispatch(setSubmitting(true));
     dispatch(setError(null));
     dispatch(setNotice(null));
+    if (!await isInternetAvailable()) {
+        dispatch(setError(NETWORK_UNAVAILABLE_MESSAGE));
+        return false;
+    }
+
+    dispatch(setSubmitting(true));
 
     try {
         const { data, error } = await createSignUpClient().auth.signUp({
@@ -238,8 +266,13 @@ export const signUp = (credentials: Credentials) => async (
 };
 
 export const signOut = () => async (dispatch: AppDispatch): Promise<void> => {
-    dispatch(setSubmitting(true));
     dispatch(setError(null));
+    if (!await isInternetAvailable()) {
+        dispatch(setError(NETWORK_UNAVAILABLE_MESSAGE));
+        return;
+    }
+
+    dispatch(setSubmitting(true));
 
     try {
         const { error } = await getSupabaseClient().auth.signOut();
@@ -253,8 +286,13 @@ export const signOut = () => async (dispatch: AppDispatch): Promise<void> => {
 };
 
 export const deleteAccount = () => async (dispatch: AppDispatch): Promise<boolean> => {
-    dispatch(setSubmitting(true));
     dispatch(setError(null));
+    if (!await isInternetAvailable()) {
+        dispatch(setError(NETWORK_UNAVAILABLE_MESSAGE));
+        return false;
+    }
+
+    dispatch(setSubmitting(true));
 
     try {
         const client = getSupabaseClient();

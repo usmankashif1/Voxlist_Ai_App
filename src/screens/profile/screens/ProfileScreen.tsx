@@ -7,17 +7,20 @@ import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
 import BackButton from '../../../components/BackButton';
 import ConfirmationModal from '../../home/components/ConfirmationModal';
+import ReminderHealthSheet from '../../home/components/ReminderHealthSheet';
 import { deleteAccount, signOut } from '../../../store/authThunks';
 import { selectAuth } from '../../../store/slices/authSlice';
 import { useAppDispatch, useAppSelector } from '../../../store/hooks';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { disableReminderHealthPrompts } from '../../../core/storage/onboardingStorage';
 
 const ProfileScreen = () => {
     const navigation = useNavigation<NavigationProp<ParamListBase>>();
     const dispatch = useAppDispatch();
-    const { session, error, isSubmitting } = useAppSelector(selectAuth);
+    const { session, isSubmitting } = useAppSelector(selectAuth);
     const isGuest = session?.user.is_anonymous === true;
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+    const [isReminderHealthOpen, setIsReminderHealthOpen] = useState(false);
     const isDeletingAccount = useRef(false);
 
     const handleSignOut = () => {
@@ -68,7 +71,19 @@ const ProfileScreen = () => {
                     ) : null}
                 </View>
 
-                {error ? <AppText style={styles.error}>{error}</AppText> : null}
+                <AppButton
+                    style={styles.reminderSettings}
+                    onPress={() => setIsReminderHealthOpen(true)}
+                    accessibilityRole="button"
+                >
+                    <View style={styles.reminderSettingsCopy}>
+                        <AppText style={styles.reminderSettingsTitle}>Task reminder settings</AppText>
+                        <AppText style={styles.description}>
+                            Review notification and background settings for task reminders.
+                        </AppText>
+                    </View>
+                    <AppText style={styles.reminderSettingsAction}>Review</AppText>
+                </AppButton>
 
                 {isGuest ? (
                     <>
@@ -145,6 +160,21 @@ const ProfileScreen = () => {
                 onCancel={() => setIsConfirmingDelete(false)}
                 onConfirm={() => void confirmDeleteAccount()}
             />
+            <ReminderHealthSheet
+                visible={isReminderHealthOpen}
+                onDontRemindAgain={() => {
+                    void disableReminderHealthPrompts()
+                        .then(() => setIsReminderHealthOpen(false))
+                        .catch(saveError => {
+                            console.error('Could not save reminder health prompt preference.', saveError);
+                            Alert.alert(
+                                'Could not save this setting',
+                                'Please try again.',
+                            );
+                        });
+                }}
+                onClose={() => setIsReminderHealthOpen(false)}
+            />
         </SafeAreaView>
     );
 };
@@ -204,6 +234,31 @@ const styles = StyleSheet.create({
         lineHeight: RF(19),
         marginTop: RH(taskTheme.spacing.md),
     },
+    reminderSettings: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: RW(taskTheme.spacing.md),
+        padding: RW(taskTheme.spacing.lg),
+        marginTop: RH(taskTheme.spacing.md),
+        borderRadius: RS(taskTheme.radius.lg),
+        borderWidth: 1,
+        borderColor: taskTheme.colors.border,
+        backgroundColor: taskTheme.colors.surface,
+    },
+    reminderSettingsCopy: {
+        flex: 1,
+    },
+    reminderSettingsTitle: {
+        color: taskTheme.colors.text,
+        fontSize: RF(14),
+        fontWeight: '700',
+    },
+    reminderSettingsAction: {
+        color: taskTheme.colors.primary,
+        fontSize: RF(13),
+        fontWeight: '700',
+    },
     primaryButton: {
         minHeight: RH(50),
         alignItems: 'center',
@@ -240,12 +295,6 @@ const styles = StyleSheet.create({
         color: taskTheme.colors.white,
         fontSize: RF(14),
         fontWeight: '700',
-    },
-    error: {
-        color: taskTheme.colors.danger,
-        fontSize: RF(13),
-        lineHeight: RF(19),
-        marginTop: RH(taskTheme.spacing.md),
     },
 });
 

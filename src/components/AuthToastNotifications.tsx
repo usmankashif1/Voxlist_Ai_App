@@ -11,6 +11,7 @@ import { RF, RH, RS, RW } from '../core/utils/responsive';
 import { taskTheme } from '../core/theme/taskTheme';
 import { useAppSelector } from '../store/hooks';
 import { selectAuth } from '../store/slices/authSlice';
+import { isNetworkError } from '../core/network/internetAccess';
 
 const toastConfig: ToastConfig = {
     success: props => (
@@ -48,17 +49,34 @@ const toastConfig: ToastConfig = {
     ),
 };
 
-const getFriendlyAuthError = (message: string): string => {
+interface AuthToastFeedback {
+    title: string;
+    message: string;
+}
+
+const getFriendlyAuthFeedback = (message: string): AuthToastFeedback => {
     const normalizedMessage = message.toLowerCase();
 
-    if (normalizedMessage.includes('error sending recovery email')) {
-        return "Couldn't send a reset code. Try again shortly.";
+    if (isNetworkError(message)) {
+        return {
+            title: 'No internet connection',
+            message: 'Check your connection and try again.',
+        };
     }
     if (
         normalizedMessage.includes('invalid login credentials')
         || normalizedMessage.includes('invalid credentials')
     ) {
-        return 'Email or password is incorrect.';
+        return {
+            title: 'Invalid email or password',
+            message: 'Check your email and password, then try again.',
+        };
+    }
+    if (normalizedMessage.includes('error sending recovery email')) {
+        return {
+            title: "Couldn't send reset code",
+            message: 'Please try again in a few minutes.',
+        };
     }
     if (
         normalizedMessage.includes('invalid otp')
@@ -66,40 +84,80 @@ const getFriendlyAuthError = (message: string): string => {
         || normalizedMessage.includes('otp_expired')
         || normalizedMessage.includes('token has expired')
     ) {
-        return 'Code is invalid or expired. Request a new one.';
-    }
-    if (normalizedMessage.includes('invalid email')) {
-        return 'Enter a valid email address.';
-    }
-    if (normalizedMessage.includes('email not confirmed')) {
-        return 'Confirm your email before signing in.';
-    }
-    if (normalizedMessage.includes('weak password')) {
-        return 'Choose a stronger password.';
+        return {
+            title: 'Reset code expired or invalid',
+            message: 'Check the latest code in your email or request a new one.',
+        };
     }
     if (
-        normalizedMessage.includes('password should be at least')
+        normalizedMessage.includes('invalid email')
+        || normalizedMessage.includes('enter your email address')
+        || (
+            normalizedMessage.includes('email address')
+            && normalizedMessage.includes('invalid')
+        )
+    ) {
+        return {
+            title: 'Check your email address',
+            message: 'Enter a valid email address and try again.',
+        };
+    }
+    if (
+        normalizedMessage.includes('could not start password recovery')
+        || normalizedMessage.includes('could not verify the reset code')
+    ) {
+        return {
+            title: 'Could not verify reset code',
+            message: 'Request a new reset code and try again.',
+        };
+    }
+    if (normalizedMessage.includes('email not confirmed')) {
+        return {
+            title: 'Confirm your email',
+            message: 'Check your inbox for the confirmation link, then try again.',
+        };
+    }
+    if (
+        normalizedMessage.includes('weak password')
+        || normalizedMessage.includes('password should be at least')
         || normalizedMessage.includes('password must be at least')
     ) {
-        return 'Password must be at least 8 characters.';
+        return {
+            title: 'Choose a stronger password',
+            message: 'Use a password with at least 8 characters.',
+        };
     }
     if (
         normalizedMessage.includes('user already registered')
         || normalizedMessage.includes('already been registered')
+        || normalizedMessage.includes('already exists')
     ) {
-        return 'This email already has an account. Log in instead.';
-    }
-    if (normalizedMessage.includes('rate limit') || normalizedMessage.includes('too many requests')) {
-        return 'Too many attempts. Wait and try again.';
+        return {
+            title: 'Account already exists',
+            message: 'This email is already registered. Log in instead.',
+        };
     }
     if (
-        normalizedMessage.includes('network request failed')
-        || normalizedMessage.includes('failed to fetch')
+        normalizedMessage.includes('anonymous sign-ins are disabled')
+        || normalizedMessage.includes('anonymous sign in is disabled')
     ) {
-        return 'Check your internet connection and try again.';
+        return {
+            title: 'Guest sign-in is unavailable',
+            message: 'Please create an account or try again later.',
+        };
     }
-
-    return 'Please try again.';
+    if (
+        /rate.?limit|too many requests|too many attempts|over_email_send/.test(normalizedMessage)
+    ) {
+        return {
+            title: 'Too many attempts',
+            message: 'Wait a few minutes before trying again.',
+        };
+    }
+    return {
+        title: 'Something went wrong',
+        message: 'Please try again. If the problem continues, contact support.',
+    };
 };
 
 const getSuccessTitle = (message: string): string => {
@@ -132,12 +190,19 @@ export const AuthToastListener = () => {
 
     useEffect(() => {
         const feedback = error
-            ? { type: 'error' as const, title: "Couldn't complete that request", message: getFriendlyAuthError(error) }
+            ? {
+                type: 'error' as const,
+                ...getFriendlyAuthFeedback(error),
+            }
             : initializationError
                 ? {
                     type: 'error' as const,
-                    title: "Couldn't check your account",
-                    message: getFriendlyAuthError(initializationError),
+                    title: isNetworkError(initializationError)
+                        ? 'No internet connection'
+                        : "Couldn't check your account",
+                    message: isNetworkError(initializationError)
+                        ? 'Check your connection and try again.'
+                        : 'Please try again in a moment.',
                 }
                 : notice
                     ? { type: 'success' as const, title: getSuccessTitle(notice), message: notice }

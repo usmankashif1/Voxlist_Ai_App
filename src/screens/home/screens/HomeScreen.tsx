@@ -12,7 +12,6 @@ import {
     UIManager,
     View,
 } from 'react-native';
-import * as Network from 'expo-network';
 import { RF, RH, RS, RW } from '../../../core/utils/responsive';
 import { getLocalDueDate, getTaskDateLabel } from '../../../core/utils/dateTime';
 import { taskTheme } from '../../../core/theme/taskTheme';
@@ -24,9 +23,9 @@ import TaskEditorModal from '../components/TaskEditorModal';
 import MoveOverdueTasksModal from '../components/MoveOverdueTasksModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import VoiceTaskReviewModal from '../components/VoiceTaskReviewModal';
-import InternetRequiredSheet from '../components/InternetRequiredSheet';
 import HomeTourOverlay, { type HomeTourTarget } from '../components/HomeTourOverlay';
-import BatteryOptimizationPrompt from '../components/BatteryOptimizationPrompt';
+import ReminderHealthBanner from '../components/ReminderHealthBanner';
+import ReminderHealthSheet from '../components/ReminderHealthSheet';
 import type { ExtractedTask, Task, TaskCategory, TaskDateLabel, TaskSection } from '../home.types';
 import useTasks from '../hooks/useTasks';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -44,15 +43,26 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { HomeStackParamList } from '../navigation/HomeNavigator';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
-    claimBatteryOptimizationPrompt,
+    claimReminderHealthChecklist,
+    getHasReviewedBrandGuidance,
+    getReminderHealthPromptsDisabled,
     getHasSeenHomeTour as readHasSeenHomeTour,
+    disableReminderHealthPrompts,
     setHasSeenHomeTour as persistHomeTourCompletion,
 } from '../../../core/storage/onboardingStorage';
 import {
-    isIgnoringBatteryOptimizations,
-    requestBatteryOptimizationExemption,
-} from '../../../core/notifications/reminderStatus';
-import { subscribeToReminderEligibleTaskSaves } from '../../../core/notifications/taskReminderService';
+    subscribeToReminderEligibleTaskSaves,
+} from '../../../core/notifications/taskReminderService';
+import {
+    getReminderHealthStatus,
+    needsReminderHealthAttention,
+    type ReminderHealthStatus,
+} from '../../../core/reminderHealth/reminderHealth';
+import {
+    isNetworkError,
+    requireInternetConnection,
+    showNetworkUnavailableToast,
+} from '../../../core/network/internetAccess';
 
 const sectionOrder: TaskDateLabel[] = ['Overdue', 'Today', 'Tomorrow', 'Upcoming', 'No Date'];
 const categories: TaskCategory[] = [...sectionOrder, 'Completed'];
@@ -102,9 +112,12 @@ const HomeScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
     const dispatch = useAppDispatch();
     const insets = useSafeAreaInsets();
-    const [isBatteryPromptQueued, setIsBatteryPromptQueued] = useState(false);
-    const [isBatteryOptimizationPromptOpen, setIsBatteryOptimizationPromptOpen] = useState(false);
-    const batteryPromptCheckInProgress = useRef(false);
+    const [isReminderHealthPromptQueued, setIsReminderHealthPromptQueued] = useState(false);
+    const [isReminderHealthSheetOpen, setIsReminderHealthSheetOpen] = useState(false);
+    const [hasReviewedBrandGuidance, setHasReviewedBrandGuidance] = useState(false);
+    const [reminderHealthStatus, setReminderHealthStatus] =
+        useState<ReminderHealthStatus | null>(null);
+    const reminderHealthPromptCheckInProgress = useRef(false);
     const {
         items,
         loading,
@@ -125,10 +138,25 @@ const HomeScreen = () => {
     );
 
 
+    const refreshReminderHealth = useCallback(async () => {
+        if (Platform.OS !== 'android') return;
+        try {
+            const [status, brandGuidanceReviewed] = await Promise.all([
+                getReminderHealthStatus(),
+                getHasReviewedBrandGuidance(),
+            ]);
+            setReminderHealthStatus(status);
+            setHasReviewedBrandGuidance(brandGuidanceReviewed);
+        } catch (healthError) {
+            console.error('Could not refresh reminder health.', healthError);
+        }
+    }, []);
+
     useFocusEffect(useCallback(() => {
         setCurrentDate(new Date());
         void reload();
-    }, [reload]));
+        void refreshReminderHealth();
+    }, [refreshReminderHealth, reload]));
 
 
 
@@ -199,8 +227,6 @@ const HomeScreen = () => {
         message: string;
     } | null>(null);
     const [isPreparingVoice, setIsPreparingVoice] = useState(false);
-    const [isInternetSheetOpen, setIsInternetSheetOpen] = useState(false);
-    const [isOffline, setIsOffline] = useState(true);
     const [selectedCategory, setSelectedCategory] = useState<TaskCategory>('Today');
     const [isSelectingOverdueTasks, setIsSelectingOverdueTasks] = useState(false);
     const [selectedOverdueTaskIds, setSelectedOverdueTaskIds] = useState<string[]>([]);
@@ -265,135 +291,6 @@ const HomeScreen = () => {
         });
     }, [measureTourTarget]);
 
-    // useEffect(() => {
-    //     let isMounted = true;
-    //     const updateNetworkState = (
-    //         state: Network.NetworkState,
-    //         source: 'initial' | 'listener',
-    //     ) => {
-    //         if (!isMounted) return;
-    //         console.log(`[NETWORK_DEBUG] HomeScreen ${source} state: ${JSON.stringify(state)}`);
-    //         setIsOffline(
-    //             state.isConnected === false || state.isInternetReachable === false,
-    //         );
-    //     };
-
-
-    //     const subscription = Network.addNetworkStateListener(
-    //         state => updateNetworkState(state, 'listener'),
-    //     );
-    //     void Network.getNetworkStateAsync()
-    //         .then(state => updateNetworkState(state, 'initial'))
-    //         .catch(error => {
-    //             console.error('Could not determine network availability for voice tasks.', error);
-    //         });
-
-    //     return () => {
-    //         isMounted = false;
-    //         subscription.remove();
-    //     };
-    // }, []);
-
-
-
-    useEffect(() => {
-        let isMounted = true;
-        let offlineTimer: ReturnType<typeof setTimeout> | null = null;
-        let reachabilityController: AbortController | null = null;
-
-        const clearOfflineTimer = () => {
-            if (offlineTimer) {
-                clearTimeout(offlineTimer);
-                offlineTimer = null;
-            }
-            if (reachabilityController) {
-                reachabilityController.abort();
-                reachabilityController = null;
-            }
-        };
-
-        const updateNetworkState = (
-            state: Network.NetworkState,
-            source: 'initial' | 'listener',
-        ) => {
-            if (!isMounted) return;
-            console.log(`[NETWORK_DEBUG] HomeScreen ${source} state: ${JSON.stringify(state)}`);
-
-            // Hard offline: no connection at all — trust this immediately.
-            if (state.isConnected === false) {
-                clearOfflineTimer();
-                setIsOffline(true);
-                return;
-            }
-
-            // Connected, but reachability says false or is still unknown:
-            // on cellular this is often a transient validation delay, not a
-            // real outage. Don't flip to offline immediately — wait a few
-            // seconds in case a newer event clears it first.
-            if (state.isConnected === true && state.isInternetReachable === false) {
-                clearOfflineTimer();
-                offlineTimer = setTimeout(async () => {
-                    offlineTimer = null;
-                    if (!isMounted) return;
-
-                    reachabilityController = new AbortController();
-                    const controller = reachabilityController;
-                    const timeout = setTimeout(() => controller.abort(), 4000);
-
-                    try {
-                        const response = await fetch(
-                            'https://clients3.google.com/generate_204',
-                            {
-                                cache: 'no-store',
-                                signal: controller.signal,
-                            },
-                        );
-                        if (!isMounted || reachabilityController !== controller) return;
-                        setIsOffline(!response.ok);
-                    } catch (error) {
-                        if (isMounted && reachabilityController === controller) {
-                            console.warn(
-                                '[NETWORK_DEBUG] HomeScreen manual reachability check failed.',
-                                error,
-                            );
-                            setIsOffline(true);
-                        }
-                    } finally {
-                        clearTimeout(timeout);
-                        if (reachabilityController === controller) {
-                            reachabilityController = null;
-                        }
-                    }
-                }, 4000);
-                return;
-            }
-
-            // Connected and reachable (or reachability unknown/null) — treat as online.
-            clearOfflineTimer();
-            setIsOffline(false);
-        };
-
-        const subscription = Network.addNetworkStateListener(
-            state => updateNetworkState(state, 'listener'),
-        );
-        void Network.getNetworkStateAsync()
-            .then(state => updateNetworkState(state, 'initial'))
-            .catch(error => {
-                console.error('Could not determine network availability for voice tasks.', error);
-            });
-
-        return () => {
-            isMounted = false;
-            clearOfflineTimer();
-            subscription.remove();
-        };
-    }, []);
-
-
-
-
-
-
     useEffect(() => {
         let isMounted = true;
         void readHasSeenHomeTour()
@@ -411,7 +308,7 @@ const HomeScreen = () => {
     }, []);
 
     useEffect(() => subscribeToReminderEligibleTaskSaves(() => {
-        setIsBatteryPromptQueued(true);
+        setIsReminderHealthPromptQueued(true);
     }), []);
 
     useEffect(() => {
@@ -428,7 +325,6 @@ const HomeScreen = () => {
         const hasOtherModalOpen = editingTask !== null
             || isCreateTaskOpen
             || isVoiceModalOpen
-            || isInternetSheetOpen
             || isMoveOverdueModalOpen
             || isMovingOverdueTasks
             || taskActionTask !== null
@@ -436,33 +332,42 @@ const HomeScreen = () => {
             || voiceQuotaNotice !== null
             || homeTourStep !== null;
         if (
-            !isBatteryPromptQueued
+            !isReminderHealthPromptQueued
             || Platform.OS !== 'android'
             || hasOtherModalOpen
-            || batteryPromptCheckInProgress.current
+            || reminderHealthPromptCheckInProgress.current
         ) return;
 
-        batteryPromptCheckInProgress.current = true;
+        reminderHealthPromptCheckInProgress.current = true;
         void (async () => {
             try {
-                const alreadyExempt = await isIgnoringBatteryOptimizations();
-                const claimed = await claimBatteryOptimizationPrompt();
-                if (claimed && !alreadyExempt) {
-                    setIsBatteryOptimizationPromptOpen(true);
+                const claimed = await claimReminderHealthChecklist();
+                if (!claimed) return;
+                const [status, brandGuidanceReviewed, promptsDisabled] = await Promise.all([
+                    getReminderHealthStatus(),
+                    getHasReviewedBrandGuidance(),
+                    getReminderHealthPromptsDisabled(),
+                ]);
+                setReminderHealthStatus(status);
+                setHasReviewedBrandGuidance(brandGuidanceReviewed);
+                if (
+                    !promptsDisabled
+                    && needsReminderHealthAttention(status, brandGuidanceReviewed)
+                ) {
+                    setIsReminderHealthSheetOpen(true);
                 }
             } catch (error) {
-                console.error('Could not prepare the battery optimization prompt.', error);
+                console.error('Could not prepare the reminder health checklist.', error);
             } finally {
-                batteryPromptCheckInProgress.current = false;
-                setIsBatteryPromptQueued(false);
+                reminderHealthPromptCheckInProgress.current = false;
+                setIsReminderHealthPromptQueued(false);
             }
         })();
     }, [
         editingTask,
         homeTourStep,
-        isBatteryPromptQueued,
+        isReminderHealthPromptQueued,
         isCreateTaskOpen,
-        isInternetSheetOpen,
         isMoveOverdueModalOpen,
         isMovingOverdueTasks,
         isVoiceModalOpen,
@@ -491,6 +396,9 @@ const HomeScreen = () => {
         () => getCategorySections(items, selectedCategory, currentDate, delayedCompletedTaskIds),
         [currentDate, delayedCompletedTaskIds, items, selectedCategory],
     );
+    const showReminderHealthBanner = Platform.OS === 'android'
+        && reminderHealthStatus !== null
+        && needsReminderHealthAttention(reminderHealthStatus, hasReviewedBrandGuidance);
     const selectedOverdueTasks = useMemo(
         () => items.filter(task => (
             selectedOverdueTaskIds.includes(task.id)
@@ -581,19 +489,13 @@ const HomeScreen = () => {
 
 
     const reserveVoiceUse = useCallback(async (): Promise<VoiceUsageDecision | null> => {
-        if (isOffline) {
-            setIsInternetSheetOpen(true);
-            return null;
-        }
+        if (!await requireInternetConnection()) return null;
         return reserveVoiceRequest();
-    }, [isOffline]);
+    }, []);
 
     const handleConfirmVoiceTasks = async (tasks: ExtractedTask[]) => addTasks(tasks);
     const handleVoicePress = async () => {
-        if (isOffline) {
-            setIsInternetSheetOpen(true);
-            return;
-        }
+        if (!await requireInternetConnection()) return;
         if (isPreparingVoiceRef.current) return;
 
         isPreparingVoiceRef.current = true;
@@ -613,7 +515,11 @@ const HomeScreen = () => {
             setIsVoiceModalOpen(true);
         } catch (error) {
             console.error('Could not prepare a reserved voice request.', error);
-            Alert.alert('Could not start voice input', getErrorMessage(error));
+            if (isNetworkError(error)) {
+                showNetworkUnavailableToast();
+            } else {
+                Alert.alert('Could not start voice input', getErrorMessage(error));
+            }
         } finally {
             isPreparingVoiceRef.current = false;
             setIsPreparingVoice(false);
@@ -667,6 +573,12 @@ const HomeScreen = () => {
                 <AppText style={styles.listTitle}>Your tasks</AppText>
                 <AppText style={styles.taskCount}>{items.length}</AppText>
             </View>
+
+            {showReminderHealthBanner ? (
+                <ReminderHealthBanner
+                    onOpen={() => setIsReminderHealthSheetOpen(true)}
+                />
+            ) : null}
 
             <TaskCategoryTabs
                 categories={categories}
@@ -867,10 +779,6 @@ const HomeScreen = () => {
                 confirmText="Got it"
                 onConfirm={() => setVoiceQuotaNotice(null)}
             />
-            <InternetRequiredSheet
-                visible={isInternetSheetOpen}
-                onClose={() => setIsInternetSheetOpen(false)}
-            />
             {homeTourStep && tourTargets.microphone && tourTargets.createTask ? (
                 <HomeTourOverlay
                     step={homeTourStep}
@@ -881,10 +789,22 @@ const HomeScreen = () => {
                     onDismiss={() => void handleCompleteHomeTour()}
                 />
             ) : null}
-            <BatteryOptimizationPrompt
-                visible={isBatteryOptimizationPromptOpen}
-                onDismiss={() => setIsBatteryOptimizationPromptOpen(false)}
-                onAllow={requestBatteryOptimizationExemption}
+            <ReminderHealthSheet
+                visible={isReminderHealthSheetOpen}
+                onDontRemindAgain={() => {
+                    void disableReminderHealthPrompts()
+                        .catch(error => {
+                            console.error('Could not save reminder health prompt preference.', error);
+                            Alert.alert(
+                                'Could not save this setting',
+                                'Please try again.',
+                            );
+                        });
+                }}
+                onClose={() => {
+                    setIsReminderHealthSheetOpen(false);
+                    void refreshReminderHealth();
+                }}
             />
         </SafeAreaView>
     );

@@ -24,7 +24,6 @@ import type { ExtractedTask, Task } from '../home.types';
 import { validateExtractedTasks } from '../taskValidation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-    requestExactAlarmPermission,
     requestNotificationPermission,
 } from '../../../core/permissions/permissionService';
 
@@ -141,10 +140,6 @@ const TaskEditorModal = ({
             try {
                 if (!await requestNotificationPermission(true)) {
                     setError('Allow notifications to receive task reminders.');
-                    return;
-                }
-                if (Platform.OS === 'android' && !await requestExactAlarmPermission()) {
-                    setError('Allow exact alarms for the most reliable reminder delivery.');
                     return;
                 }
                 setError('');

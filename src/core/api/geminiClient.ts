@@ -1,5 +1,6 @@
 import type { CurrentDateTimeContext } from '../utils/dateTime';
 import { getSupabaseClient } from '../auth/supabase';
+import { ensureInternetAvailable } from '../network/internetAccess';
 import { getFunctionErrorMessage } from './edgeFunctionError';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -66,6 +67,7 @@ export const generateTaskCandidates = async (
         throw new Error('Record or enter a note before creating tasks.');
     }
 
+    await ensureInternetAvailable();
     const { data, error } = await getSupabaseClient().functions.invoke<unknown>(
         'ai-proxy',
         {

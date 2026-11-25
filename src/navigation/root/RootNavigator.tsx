@@ -27,7 +27,6 @@ import {
     setHasCompletedOnboarding as persistOnboardingCompletion,
 } from '../../core/storage/onboardingStorage';
 import { syncTasksForUser } from '../../core/storage/taskSyncService';
-import { startForegroundReminderService } from '../../core/notifications/reminderStatus';
 import { initializeAuth } from '../../store/authThunks';
 import { selectAuth } from '../../store/slices/authSlice';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
@@ -46,7 +45,6 @@ const RootNavigator = () => {
     const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean | null>(null);
     const [onboardingStorageError, setOnboardingStorageError] = useState(false);
     const pendingNotificationTaskId = useRef<string | null>(null);
-    const reminderServiceState = useRef<'unknown' | 'starting' | 'started'>('unknown');
     const lastNotificationResponse = Notifications.useLastNotificationResponse();
 
     const loadOnboardingState = useCallback(async () => {
@@ -128,25 +126,6 @@ const RootNavigator = () => {
         ? session.user.id
         : null;
 
-    const refreshReminderService = useCallback(async () => {
-        if (Platform.OS !== 'android') return;
-        if (
-            reminderServiceState.current === 'started'
-            || reminderServiceState.current === 'starting'
-        ) return;
-        reminderServiceState.current = 'starting';
-        try {
-            await startForegroundReminderService();
-            reminderServiceState.current = 'started';
-        } catch (error) {
-            reminderServiceState.current = 'unknown';
-            console.error('Could not update the foreground reminder service.', error);
-        }
-    }, []);
-
-
-
-
     // useEffect(() => {
     //     if (!userId) return undefined;
 
@@ -197,10 +176,8 @@ const RootNavigator = () => {
 
         let isOnline = false;
         let offlineTimer: ReturnType<typeof setTimeout> | null = null;
-        void refreshReminderService();
         const appStateSubscription = AppState.addEventListener('change', state => {
             if (state === 'active') {
-                void refreshReminderService();
                 if (isOnline) sync();
             }
         });
@@ -260,7 +237,7 @@ const RootNavigator = () => {
             networkSubscription?.remove();
             appStateSubscription.remove();
         };
-    }, [refreshReminderService, userId]);
+    }, [userId]);
 
 
 

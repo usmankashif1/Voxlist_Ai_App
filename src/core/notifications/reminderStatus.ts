@@ -1,11 +1,20 @@
 import { NativeModules, Platform } from 'react-native';
 
 interface ReminderStatusNativeModule {
-    setDueTaskCount: (count: number) => Promise<void>;
-    startForegroundReminderService: () => Promise<void>;
-    stopForegroundReminderService: () => Promise<void>;
     isIgnoringBatteryOptimizations: () => Promise<boolean>;
-    requestBatteryOptimizationExemption: () => Promise<void>;
+    openBatteryOptimizationSettings: () => Promise<void>;
+    openExactAlarmSettings: () => Promise<void>;
+    openAppDetailsSettings: () => Promise<void>;
+    openAppNotificationSettings: () => Promise<void>;
+    getDeviceInfo: () => Promise<ReminderDeviceInfo>;
+    openOemAutostartSettings: () => Promise<{ opened: boolean }>;
+}
+
+export interface ReminderDeviceInfo {
+    manufacturer: string;
+    brand: string;
+    sdkInt: number;
+    osSkinHint: string | null;
 }
 
 const nativeModule = NativeModules.ReminderStatus as
@@ -19,27 +28,39 @@ const getNativeModule = (): ReminderStatusNativeModule => {
     return nativeModule;
 };
 
-export const setDueTaskCount = async (count: number): Promise<void> => {
-    if (Platform.OS !== 'android') return;
-    await getNativeModule().setDueTaskCount(count);
-};
-
-export const startForegroundReminderService = async (): Promise<void> => {
-    if (Platform.OS !== 'android') return;
-    await getNativeModule().startForegroundReminderService();
-};
-
-export const stopForegroundReminderService = async (): Promise<void> => {
-    if (Platform.OS !== 'android') return;
-    await getNativeModule().stopForegroundReminderService();
-};
-
 export const isIgnoringBatteryOptimizations = async (): Promise<boolean> => {
     if (Platform.OS !== 'android') return true;
     return getNativeModule().isIgnoringBatteryOptimizations();
 };
 
-export const requestBatteryOptimizationExemption = async (): Promise<void> => {
+export const openBatteryOptimizationSettings = async (): Promise<void> => {
     if (Platform.OS !== 'android') return;
-    await getNativeModule().requestBatteryOptimizationExemption();
+    await getNativeModule().openBatteryOptimizationSettings();
+};
+
+export const openExactAlarmSettings = async (): Promise<void> => {
+    if (Platform.OS !== 'android') return;
+    await getNativeModule().openExactAlarmSettings();
+};
+
+export const openAppDetailsSettings = async (): Promise<void> => {
+    if (Platform.OS !== 'android') return;
+    await getNativeModule().openAppDetailsSettings();
+};
+
+export const openAppNotificationSettings = async (): Promise<void> => {
+    if (Platform.OS !== 'android') return;
+    await getNativeModule().openAppNotificationSettings();
+};
+
+export const getReminderDeviceInfo = async (): Promise<ReminderDeviceInfo> => {
+    if (Platform.OS !== 'android') {
+        return { manufacturer: '', brand: '', sdkInt: 0, osSkinHint: null };
+    }
+    return getNativeModule().getDeviceInfo();
+};
+
+export const openOemAutostartSettings = async (): Promise<{ opened: boolean }> => {
+    if (Platform.OS !== 'android') return { opened: false };
+    return getNativeModule().openOemAutostartSettings();
 };

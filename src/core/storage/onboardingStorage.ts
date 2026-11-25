@@ -2,7 +2,10 @@ import * as SecureStore from 'expo-secure-store';
 
 const HAS_COMPLETED_ONBOARDING_KEY = 'hasCompletedOnboarding';
 const HAS_SEEN_HOME_TOUR_KEY = 'hasSeenHomeTour';
-const HAS_PROMPTED_BATTERY_OPTIMIZATION_KEY = 'hasPromptedBatteryOptimization';
+const HAS_SEEN_REMINDER_HEALTH_KEY = 'hasSeenReminderHealthChecklist';
+const HAS_REVIEWED_BRAND_GUIDANCE_KEY = 'hasReviewedReminderBrandGuidance';
+const HAS_DISABLED_REMINDER_HEALTH_PROMPTS_KEY = 'hasDisabledReminderHealthPrompts';
+const LEGACY_HAS_PROMPTED_BATTERY_OPTIMIZATION_KEY = 'hasPromptedBatteryOptimization';
 
 type OnboardingPermission = 'microphone' | 'notifications';
 
@@ -27,22 +30,40 @@ export const setHasSeenHomeTour = async (): Promise<void> => {
     await SecureStore.setItemAsync(HAS_SEEN_HOME_TOUR_KEY, 'true');
 };
 
-let batteryPromptClaim: Promise<boolean> | null = null;
+let reminderHealthPromptClaim: Promise<boolean> | null = null;
 
-export const claimBatteryOptimizationPrompt = (): Promise<boolean> => {
-    if (batteryPromptClaim) return batteryPromptClaim;
+export const claimReminderHealthChecklist = (): Promise<boolean> => {
+    if (reminderHealthPromptClaim) return reminderHealthPromptClaim;
 
-    batteryPromptClaim = (async () => {
-        const alreadyPrompted = await SecureStore.getItemAsync(
-            HAS_PROMPTED_BATTERY_OPTIMIZATION_KEY,
-        );
-        if (alreadyPrompted === 'true') return false;
+    reminderHealthPromptClaim = (async () => {
+        const [alreadySeen, promptsDisabled] = await Promise.all([
+            SecureStore.getItemAsync(HAS_SEEN_REMINDER_HEALTH_KEY),
+            SecureStore.getItemAsync(HAS_DISABLED_REMINDER_HEALTH_PROMPTS_KEY),
+        ]);
+        if (alreadySeen === 'true' || promptsDisabled === 'true') return false;
 
-        await SecureStore.setItemAsync(HAS_PROMPTED_BATTERY_OPTIMIZATION_KEY, 'true');
-        return true;
+        const legacyPromptShown = await SecureStore.getItemAsync(
+            LEGACY_HAS_PROMPTED_BATTERY_OPTIMIZATION_KEY,
+        ) === 'true';
+        await SecureStore.setItemAsync(HAS_SEEN_REMINDER_HEALTH_KEY, 'true');
+        return !legacyPromptShown;
     })().finally(() => {
-        batteryPromptClaim = null;
+        reminderHealthPromptClaim = null;
     });
 
-    return batteryPromptClaim;
+    return reminderHealthPromptClaim;
+};
+
+export const getHasReviewedBrandGuidance = async (): Promise<boolean> =>
+    await SecureStore.getItemAsync(HAS_REVIEWED_BRAND_GUIDANCE_KEY) === 'true';
+
+export const setHasReviewedBrandGuidance = async (): Promise<void> => {
+    await SecureStore.setItemAsync(HAS_REVIEWED_BRAND_GUIDANCE_KEY, 'true');
+};
+
+export const getReminderHealthPromptsDisabled = async (): Promise<boolean> =>
+    await SecureStore.getItemAsync(HAS_DISABLED_REMINDER_HEALTH_PROMPTS_KEY) === 'true';
+
+export const disableReminderHealthPrompts = async (): Promise<void> => {
+    await SecureStore.setItemAsync(HAS_DISABLED_REMINDER_HEALTH_PROMPTS_KEY, 'true');
 };

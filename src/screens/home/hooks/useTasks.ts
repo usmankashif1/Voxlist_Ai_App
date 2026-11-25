@@ -14,7 +14,6 @@ import {
     notifyReminderEligibleTaskSaved,
     scheduleTaskReminder,
 } from '../../../core/notifications/taskReminderService';
-import { setDueTaskCount } from '../../../core/notifications/reminderStatus';
 import { ANDROID_CHANNEL_ID } from '../../../core/permissions/permissionService';
 import {
     deleteStoredTask,
@@ -47,18 +46,6 @@ const hideStartupSplash = (): void => {
     });
 };
 
-const publishIncompleteTaskCount = async (
-    userId: string | null,
-    tasks?: Task[],
-): Promise<void> => {
-    try {
-        const currentTasks = tasks ?? await getStoredTasks(userId);
-        await setDueTaskCount(currentTasks.filter(task => !task.isCompleted).length);
-    } catch (error) {
-        console.error('Could not update the foreground incomplete-task count.', error);
-    }
-};
-
 const scheduleAndStoreReminder = async (task: Task) => {
     const scheduledReminder = await scheduleTaskReminder(task);
     if (!scheduledReminder) return null;
@@ -68,7 +55,10 @@ const scheduleAndStoreReminder = async (task: Task) => {
             task,
             scheduledReminder.notificationId,
         );
-        if (saved) return scheduledReminder;
+        if (saved) {
+            if (Platform.OS === 'android') notifyReminderEligibleTaskSaved();
+            return scheduledReminder;
+        }
     } catch (error) {
         await cancelTaskReminder(scheduledReminder.notificationId);
         throw error;
@@ -125,14 +115,15 @@ const reconcileTaskRemindersNow = async (
 
         if (!shouldSchedule) {
             if (scheduledForTask.length || task.notificationId) {
-                await cancelScheduledTaskReminders(
-                    [
-                        ...scheduledForTask.map(notification => notification.identifier),
-                        ...(task.notificationId ? [task.notificationId] : []),
-                    ],
-                );
                 const taskWithoutReminder = { ...task, notificationId: null };
-                await updateStoredTaskNotificationId(task, null);
+                const saved = await updateStoredTaskNotificationId(task, null);
+                if (!saved) {
+                    throw new Error(`Could not clear reminder state for task ${task.id}.`);
+                }
+                await cancelScheduledTaskReminders([
+                    ...scheduledForTask.map(notification => notification.identifier),
+                    ...(task.notificationId ? [task.notificationId] : []),
+                ]);
                 reconciledTasks.push(taskWithoutReminder);
             } else {
                 reconciledTasks.push(task);
@@ -166,46 +157,54 @@ const reconcileTaskRemindersNow = async (
             ) {
                 reminderError = 'Allow exact alarms for Voxlist Ai to improve on-time task reminders.';
             }
+            const reconciledTask = {
+                ...task,
+                notificationId: currentNotification.identifier,
+            };
+            if (task.notificationId !== currentNotification.identifier) {
+                const saved = await updateStoredTaskNotificationId(
+                    task,
+                    currentNotification.identifier,
+                );
+                if (!saved) {
+                    throw new Error(`Could not save reminder state for task ${task.id}.`);
+                }
+            }
             await cancelScheduledTaskReminders(
                 scheduledForTask
                     .filter(notification => notification.identifier !== currentNotification.identifier)
                     .map(notification => notification.identifier),
             );
-            const reconciledTask = {
-                ...task,
-                notificationId: currentNotification.identifier,
-            };
             if (
                 task.notificationId
                 && task.notificationId !== currentNotification.identifier
             ) {
                 await cancelTaskReminder(task.notificationId);
             }
-            if (task.notificationId !== currentNotification.identifier) {
-                await updateStoredTaskNotificationId(task, currentNotification.identifier);
-            }
             reconciledTasks.push(reconciledTask);
             continue;
         }
 
-        await cancelScheduledTaskReminders(
-            [
-                ...scheduledForTask.map(notification => notification.identifier),
-                ...(task.notificationId ? [task.notificationId] : []),
-            ],
-        );
-        const taskWithoutReminder = { ...task, notificationId: null };
-        if (task.notificationId) await updateStoredTaskNotificationId(task, null);
-
         try {
-            const scheduledReminder = await scheduleAndStoreReminder(taskWithoutReminder);
+            const scheduledReminder = await scheduleAndStoreReminder(task);
             if (!scheduledReminder) {
-                reconciledTasks.push(taskWithoutReminder);
+                reconciledTasks.push(task);
                 continue;
             }
 
+            await cancelScheduledTaskReminders(
+                scheduledForTask
+                    .filter(notification => notification.identifier !== scheduledReminder.notificationId)
+                    .map(notification => notification.identifier),
+            );
+            if (
+                task.notificationId
+                && task.notificationId !== scheduledReminder.notificationId
+            ) {
+                await cancelTaskReminder(task.notificationId);
+            }
             reconciledTasks.push({
-                ...taskWithoutReminder,
+                ...task,
                 notificationId: scheduledReminder.notificationId,
             });
             if (
@@ -223,7 +222,7 @@ const reconcileTaskRemindersNow = async (
                     ? 'Task notifications are turned off. Enable notifications in your device settings to receive reminders.'
                     : "We couldn't set one or more task reminders. Your tasks are saved, but might not notify you.";
             }
-            reconciledTasks.push(taskWithoutReminder);
+            reconciledTasks.push(task);
         }
     }
 
@@ -249,15 +248,6 @@ const reconcileTaskReminders = async (
         return result;
     } finally {
         releaseReconciliation();
-    }
-};
-
-const notifyBatteryPromptForEligibleTasks = (tasks: Task[]): void => {
-    if (
-        Platform.OS === 'android'
-        && tasks.some(task => isTaskReminderActive(task))
-    ) {
-        notifyReminderEligibleTaskSaved();
     }
 };
 
@@ -292,8 +282,6 @@ const useTasks = () => {
                     setItems(storedTasks);
                     setLoading(false);
                     hideStartupSplash();
-                    await publishIncompleteTaskCount(userId, storedTasks);
-
                     try {
                         const result = await reconcileTaskReminders(userId);
                         if (revision !== reloadRevision.current) continue;
@@ -362,8 +350,6 @@ const useTasks = () => {
         try {
             const createdTasks = await insertTasks(drafts, userId);
             setItems(current => [...createdTasks, ...current]);
-            notifyBatteryPromptForEligibleTasks(createdTasks);
-            await publishIncompleteTaskCount(userId);
             requestSync();
             void reload();
             return true;
@@ -401,7 +387,6 @@ const useTasks = () => {
             return false;
         }
         notifyTaskChanges();
-        notifyBatteryPromptForEligibleTasks([taskWithoutReminder]);
         requestSync();
         return true;
     }, [items, invalidatePendingReload, requestSync]);
@@ -436,7 +421,6 @@ const useTasks = () => {
             return false;
         }
 
-        notifyBatteryPromptForEligibleTasks(normalizedTasks);
         requestSync();
         void reload();
         return true;
@@ -465,7 +449,6 @@ const useTasks = () => {
             return;
         }
 
-        await publishIncompleteTaskCount(userId);
         await reload();
         requestSync();
     }, [invalidatePendingReload, reload, requestSync, userId]);
@@ -528,7 +511,6 @@ const useTasks = () => {
         }
         notifyTaskChanges();
         requestSync();
-        void publishIncompleteTaskCount(userId);
         if (task.notificationId) {
             void cancelTaskReminder(task.notificationId).catch(cancelError => {
                 console.error(`Could not cancel the reminder for deleted task ${task.id}.`, cancelError);

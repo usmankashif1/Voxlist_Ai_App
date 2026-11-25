@@ -18,6 +18,10 @@ import { reportAiContent, type AiContentReportType } from '../../../core/api/aiC
 import { getErrorMessage } from '../../../core/utils/errorMessage';
 import { RF, RH, RS, RW } from '../../../core/utils/responsive';
 import { taskTheme } from '../../../core/theme/taskTheme';
+import {
+    isNetworkError,
+    showNetworkUnavailableToast,
+} from '../../../core/network/internetAccess';
 
 const reportTypes: { value: AiContentReportType; label: string }[] = [
     { value: 'inaccurate', label: 'Inaccurate' },
@@ -56,6 +60,9 @@ const ReportAiContentScreen = () => {
                 [{ text: 'OK', onPress: () => navigation.goBack() }],
             );
         } catch (submitError) {
+            if (isNetworkError(submitError)) {
+                showNetworkUnavailableToast();
+            }
             setError(getErrorMessage(submitError));
         } finally {
             setIsSubmitting(false);

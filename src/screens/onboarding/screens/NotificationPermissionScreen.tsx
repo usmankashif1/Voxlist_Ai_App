@@ -7,7 +7,6 @@ import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
 import { requestNotificationPermission } from '../../../core/permissions/permissionService';
 import { saveOnboardingPermissionResult } from '../../../core/storage/onboardingStorage';
-import { getErrorMessage } from '../../../core/utils/errorMessage';
 import { RF, RH, RS, RW } from '../../../core/utils/responsive';
 import { taskTheme } from '../../../core/theme/taskTheme';
 import NotificationPermissionIllustration from '../components/NotificationPermissionIllustration';
@@ -34,11 +33,11 @@ const NotificationPermissionScreen = ({
                 : false;
             await saveOnboardingPermissionResult('notifications', granted);
             await onComplete();
-        } catch (error) {
+        } catch {
             Toast.show({
                 type: 'error',
-                text1: 'Could not finish setup',
-                text2: getErrorMessage(error),
+                text1: "Couldn't finish notification setup",
+                text2: 'Please try again. You can change notification access in your device settings.',
             });
         } finally {
             setLoading(false);

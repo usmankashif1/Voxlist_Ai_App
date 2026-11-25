@@ -69,9 +69,6 @@ export const scheduleTaskReminder = async (
 
     const exactAlarmGranted = Platform.OS !== 'android'
         || await requestExactAlarmPermission();
-    if (!exactAlarmGranted) {
-        throw new Error('Exact alarm permission was not granted. Allow exact alarms to receive task reminders on time.');
-    }
 
     const body = task.subtasks[0] || 'Your task is due now.';
     const notificationId = await scheduleNotificationAsync({

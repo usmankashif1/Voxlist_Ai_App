@@ -18,7 +18,7 @@ import type { HomeStackParamList } from '../../home/navigation/HomeNavigator';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'VerifyResetCode'>;
 
-const RESEND_COOLDOWN_SECONDS = 30;
+const RESEND_COOLDOWN_SECONDS = 60;
 
 const VerifyResetCodeScreen = ({ navigation, route }: Props) => {
     const { email } = route.params;

@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '../auth/supabase';
+import { ensureInternetAvailable } from '../network/internetAccess';
 import { getFunctionErrorMessage } from './edgeFunctionError';
 
 export type AiContentReportType = 'offensive' | 'inaccurate' | 'unsafe' | 'other';
@@ -24,6 +25,7 @@ export interface AiContentReportResponse {
 export const reportAiContent = async (
     payload: AiContentReportInput,
 ): Promise<AiContentReportResponse> => {
+    await ensureInternetAvailable();
     const { data, error } = await getSupabaseClient().functions.invoke<AiContentReportResponse>(
         'report-ai-content',
         {
