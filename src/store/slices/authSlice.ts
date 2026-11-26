@@ -1,5 +1,7 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { Session } from '@supabase/supabase-js';
+import type { AuthProfile } from '../../core/auth/authProfile';
+import { getAuthProfileFromSession } from '../../core/auth/authProfile';
 import {
     requestPasswordReset,
     updatePassword,
@@ -9,7 +11,8 @@ import type { RootState } from '../store';
 
 export interface AuthState {
     session: Session | null;
-    isLoading: boolean;
+    profile: AuthProfile | null;
+    isProfileLoading: boolean;
     isSubmitting: boolean;
     error: string | null;
     initializationError: string | null;
@@ -18,7 +21,8 @@ export interface AuthState {
 
 const initialState: AuthState = {
     session: null,
-    isLoading: true,
+    profile: null,
+    isProfileLoading: true,
     isSubmitting: false,
     error: null,
     initializationError: null,
@@ -31,10 +35,16 @@ const authSlice = createSlice({
     reducers: {
         setSession(state, action: PayloadAction<Session | null>) {
             state.session = action.payload;
+            if (action.payload) {
+                state.profile = getAuthProfileFromSession(action.payload);
+            }
             state.initializationError = null;
         },
-        setLoading(state, action: PayloadAction<boolean>) {
-            state.isLoading = action.payload;
+        setAuthProfile(state, action: PayloadAction<AuthProfile | null>) {
+            state.profile = action.payload;
+        },
+        setProfileLoading(state, action: PayloadAction<boolean>) {
+            state.isProfileLoading = action.payload;
         },
         setSubmitting(state, action: PayloadAction<boolean>) {
             state.isSubmitting = action.payload;
@@ -99,9 +109,10 @@ const authSlice = createSlice({
 
 export const {
     clearAuthMessages,
+    setAuthProfile,
     setError,
     setInitializationError,
-    setLoading,
+    setProfileLoading,
     setNotice,
     setSession,
     setSubmitting,

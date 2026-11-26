@@ -27,7 +27,11 @@ import {
     setHasCompletedOnboarding as persistOnboardingCompletion,
 } from '../../core/storage/onboardingStorage';
 import { syncTasksForUser } from '../../core/storage/taskSyncService';
-import { initializeAuth } from '../../store/authThunks';
+import {
+    hydrateAuthProfile,
+    initializeAuth,
+    refreshAuthSession,
+} from '../../store/authThunks';
 import { selectAuth } from '../../store/slices/authSlice';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 
@@ -40,7 +44,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const RootNavigator = () => {
     const dispatch = useAppDispatch();
-    const { session } = useAppSelector(selectAuth);
+    const { profile } = useAppSelector(selectAuth);
     const navigationRef = useNavigationContainerRef<RootStackParamList>();
     const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean | null>(null);
     const [onboardingStorageError, setOnboardingStorageError] = useState(false);
@@ -119,57 +123,20 @@ const RootNavigator = () => {
     }, [hasCompletedOnboarding, navigateToTask]);
 
     useEffect(() => {
-        dispatch(initializeAuth());
+        void dispatch(hydrateAuthProfile()).then(() => {
+            void dispatch(initializeAuth());
+        });
     }, [dispatch]);
 
-    const userId = session && session.user.is_anonymous !== true
-        ? session.user.id
+    const userId = profile && !profile.isAnonymous
+        ? profile.userId
         : null;
-
-    // useEffect(() => {
-    //     if (!userId) return undefined;
-
-    //     const sync = () => {
-    //         void syncTasksForUser(userId).catch(error => {
-    //             console.error('Task sync failed; local changes are still saved.', error);
-    //         });
-    //     };
-    //     let isOnline = false;
-    //     const updateNetworkState = (
-    //         state: Network.NetworkState,
-    //         source: 'initial' | 'listener',
-    //     ) => {
-    //         console.log(`[NETWORK_DEBUG] RootNavigator ${source} state: ${JSON.stringify(state)}`);
-    //         const wasOnline = isOnline;
-    //         isOnline = state.isConnected === true && state.isInternetReachable !== false;
-    //         if (isOnline && !wasOnline) sync();
-    //     };
-    //     const networkSubscription = Network.addNetworkStateListener(
-    //         state => updateNetworkState(state, 'listener'),
-    //     );
-    //     void Network.getNetworkStateAsync()
-    //         .then(state => updateNetworkState(state, 'initial'))
-    //         .catch(error => {
-    //             console.error('Could not determine network availability for task sync.', error);
-    //         });
-    //     const appStateSubscription = AppState.addEventListener('change', state => {
-    //         if (state === 'active' && isOnline) sync();
-    //     });
-
-    //     return () => {
-    //         networkSubscription.remove();
-    //         appStateSubscription.remove();
-    //     };
-    // }, [userId]);
-
-
-
 
 
     useEffect(() => {
         const sync = () => {
             if (!userId) return;
-            void syncTasksForUser(userId).catch(error => {
+            void dispatch(refreshAuthSession()).then(() => syncTasksForUser(userId)).catch(error => {
                 console.error('Task sync failed; local changes are still saved.', error);
             });
         };
@@ -237,7 +204,7 @@ const RootNavigator = () => {
             networkSubscription?.remove();
             appStateSubscription.remove();
         };
-    }, [userId]);
+    }, [dispatch, userId]);
 
 
 

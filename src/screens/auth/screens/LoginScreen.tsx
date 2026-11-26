@@ -21,10 +21,7 @@ import type { HomeStackParamList } from '../../home/navigation/HomeNavigator';
 const LoginScreen = () => {
     const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
     const dispatch = useAppDispatch();
-    const {
-        session,
-        isSubmitting,
-    } = useAppSelector(selectAuth);
+    const { profile, isSubmitting } = useAppSelector(selectAuth);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const passwordInput = useRef<React.ElementRef<typeof TextInput>>(null);
@@ -112,7 +109,7 @@ const LoginScreen = () => {
                     <AppText style={styles.secondaryButtonText}>Create an account</AppText>
                 </AppButton>
 
-                {!session ? (
+                {!profile ? (
                     <AppButton
                         style={styles.guestButton}
                         onPress={handleContinueAsGuest}

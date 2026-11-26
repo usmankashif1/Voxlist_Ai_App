@@ -17,8 +17,8 @@ import { disableReminderHealthPrompts } from '../../../core/storage/onboardingSt
 const ProfileScreen = () => {
     const navigation = useNavigation<NavigationProp<ParamListBase>>();
     const dispatch = useAppDispatch();
-    const { session, isSubmitting } = useAppSelector(selectAuth);
-    const isGuest = session?.user.is_anonymous === true;
+    const { profile, isSubmitting } = useAppSelector(selectAuth);
+    const isGuest = profile?.isAnonymous === true;
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
     const [isReminderHealthOpen, setIsReminderHealthOpen] = useState(false);
     const isDeletingAccount = useRef(false);
@@ -57,12 +57,12 @@ const ProfileScreen = () => {
                     <View style={styles.detailRow}>
                         <AppText style={styles.label}>Account type</AppText>
                         <AppText style={styles.value}>
-                            {isGuest ? 'Guest' : session ? 'Account' : 'Not signed in'}
+                            {isGuest ? 'Guest' : profile ? 'Account' : 'Not signed in'}
                         </AppText>
                     </View>
                     <View style={styles.detailRow}>
                         <AppText style={styles.label}>Email</AppText>
-                        <AppText style={styles.value}>{session?.user.email ?? 'Not added'}</AppText>
+                        <AppText style={styles.value}>{profile?.email ?? 'Not added'}</AppText>
                     </View>
                     {isGuest ? (
                         <AppText style={styles.description}>
@@ -102,7 +102,7 @@ const ProfileScreen = () => {
                             <AppText style={styles.secondaryButtonText}>Log in to an account</AppText>
                         </AppButton>
                     </>
-                ) : !session ? (
+                ) : !profile ? (
                     <>
                         <AppButton
                             style={styles.primaryButton}

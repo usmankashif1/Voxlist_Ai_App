@@ -5,6 +5,7 @@ const HAS_SEEN_HOME_TOUR_KEY = 'hasSeenHomeTour';
 const HAS_SEEN_REMINDER_HEALTH_KEY = 'hasSeenReminderHealthChecklist';
 const HAS_REVIEWED_BRAND_GUIDANCE_KEY = 'hasReviewedReminderBrandGuidance';
 const HAS_DISABLED_REMINDER_HEALTH_PROMPTS_KEY = 'hasDisabledReminderHealthPrompts';
+const HAS_DISMISSED_REMINDER_HEALTH_BANNER_KEY = 'hasDismissedReminderHealthBanner';
 const LEGACY_HAS_PROMPTED_BATTERY_OPTIMIZATION_KEY = 'hasPromptedBatteryOptimization';
 
 type OnboardingPermission = 'microphone' | 'notifications';
@@ -66,4 +67,11 @@ export const getReminderHealthPromptsDisabled = async (): Promise<boolean> =>
 
 export const disableReminderHealthPrompts = async (): Promise<void> => {
     await SecureStore.setItemAsync(HAS_DISABLED_REMINDER_HEALTH_PROMPTS_KEY, 'true');
+};
+
+export const getHasDismissedReminderHealthBanner = async (): Promise<boolean> =>
+    await SecureStore.getItemAsync(HAS_DISMISSED_REMINDER_HEALTH_BANNER_KEY) === 'true';
+
+export const dismissReminderHealthBanner = async (): Promise<void> => {
+    await SecureStore.setItemAsync(HAS_DISMISSED_REMINDER_HEALTH_BANNER_KEY, 'true');
 };

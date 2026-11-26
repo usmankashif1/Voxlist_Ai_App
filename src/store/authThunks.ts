@@ -1,18 +1,24 @@
 import { createAsyncThunk } from '@reduxjs/toolkit';
 import type { Session, Subscription } from '@supabase/supabase-js';
-import { createSignUpClient, getSupabaseClient } from '../core/auth/supabase';
+import * as Network from 'expo-network';
+import { createSignUpClient, getSupabaseAuthStorageKey, getSupabaseClient } from '../core/auth/supabase';
+import {
+    clearPersistedAuthProfile,
+    loadPersistedAuthSession,
+    persistAuthProfileFromSession,
+} from '../core/auth/authProfileStorage';
 import { getFunctionErrorMessage } from '../core/api/edgeFunctionError';
 import {
     isInternetAvailable,
     NETWORK_UNAVAILABLE_MESSAGE,
 } from '../core/network/internetAccess';
 import { getErrorMessage } from '../core/utils/errorMessage';
-import type { AppDispatch } from './store';
+import type { AppDispatch, RootState } from './store';
 import {
+    setAuthProfile,
     setError,
-    setInitializationError,
-    setLoading,
     setNotice,
+    setProfileLoading,
     setSession,
     setSubmitting,
 } from './slices/authSlice';
@@ -29,6 +35,67 @@ interface ResetCodeCredentials {
 
 let authSubscription: Subscription | null = null;
 let anonymousSessionRequest: Promise<Session> | null = null;
+
+export const hydrateAuthProfile = () => async (dispatch: AppDispatch): Promise<void> => {
+    dispatch(setProfileLoading(true));
+    try {
+        const persistedSession = await loadPersistedAuthSession(getSupabaseAuthStorageKey());
+        dispatch(setAuthProfile(persistedSession?.profile ?? null));
+    } catch (error) {
+        console.error('Could not restore the local account profile.', error);
+        dispatch(setAuthProfile(null));
+    } finally {
+        dispatch(setProfileLoading(false));
+    }
+};
+
+const clearProfileIfOnline = async (
+    dispatch: AppDispatch,
+    getState: () => RootState,
+): Promise<void> => {
+    if (!getState().auth.profile) return;
+
+    try {
+        const state = await Network.getNetworkStateAsync();
+        if (state.isConnected !== true || state.isInternetReachable !== true) return;
+
+        await clearPersistedAuthProfile();
+        dispatch(setAuthProfile(null));
+    } catch (error) {
+        console.error('Could not clear the cached account profile after session validation.', error);
+    }
+};
+
+export const refreshAuthSession = () => async (
+    dispatch: AppDispatch,
+    getState: () => RootState,
+): Promise<void> => {
+    try {
+        const client = getSupabaseClient();
+        const { data, error } = await client.auth.getSession();
+        if (error) throw error;
+
+        let session = data.session;
+        if (!session) {
+            const persistedSession = await loadPersistedAuthSession(getSupabaseAuthStorageKey());
+            if (persistedSession) {
+                const restored = await client.auth.setSession({
+                    access_token: persistedSession.accessToken,
+                    refresh_token: persistedSession.refreshToken,
+                });
+                if (restored.error) throw restored.error;
+                session = restored.data.session;
+            }
+        }
+
+        dispatch(setSession(session));
+        if (!session) {
+            await clearProfileIfOnline(dispatch, getState);
+        }
+    } catch (error) {
+        console.warn('Could not refresh the Supabase session; keeping the cached account profile.', error);
+    }
+};
 
 export const requestPasswordReset = createAsyncThunk<
     string,
@@ -140,26 +207,24 @@ const createAnonymousSession = (): Promise<Session> => {
 };
 
 export const initializeAuth = () => async (dispatch: AppDispatch): Promise<void> => {
-    dispatch(setLoading(true));
-    dispatch(setInitializationError(null));
-
     try {
         const client = getSupabaseClient();
 
         if (!authSubscription) {
             const { data } = client.auth.onAuthStateChange((_event, session) => {
                 dispatch(setSession(session));
+                if (session) {
+                    void persistAuthProfileFromSession(session).catch(error => {
+                        console.error('Could not update the cached account profile.', error);
+                    });
+                }
             });
             authSubscription = data.subscription;
         }
 
-        const { data, error } = await client.auth.getSession();
-        if (error) throw error;
-        dispatch(setSession(data.session));
+        await dispatch(refreshAuthSession());
     } catch (error) {
-        dispatch(setInitializationError(getErrorMessage(error)));
-    } finally {
-        dispatch(setLoading(false));
+        console.warn('Could not initialize Supabase auth; keeping the cached account profile.', error);
     }
 };
 
@@ -278,6 +343,8 @@ export const signOut = () => async (dispatch: AppDispatch): Promise<void> => {
         const { error } = await getSupabaseClient().auth.signOut();
         if (error) throw error;
         dispatch(setSession(null));
+        await clearPersistedAuthProfile();
+        dispatch(setAuthProfile(null));
     } catch (error) {
         dispatch(setError(getErrorMessage(error)));
     } finally {
@@ -309,6 +376,8 @@ export const deleteAccount = () => async (dispatch: AppDispatch): Promise<boolea
             throw new Error(`Account deleted, but the local session could not be cleared: ${signOutError.message}`);
         }
         dispatch(setSession(null));
+        await clearPersistedAuthProfile();
+        dispatch(setAuthProfile(null));
         return true;
     } catch (error) {
         dispatch(setError(getErrorMessage(error)));

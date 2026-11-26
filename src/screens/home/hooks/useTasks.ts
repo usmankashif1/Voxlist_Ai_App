@@ -252,9 +252,9 @@ const reconcileTaskReminders = async (
 };
 
 const useTasks = () => {
-    const { session, isLoading: isAuthLoading } = useAppSelector(selectAuth);
-    const userId = session && session.user.is_anonymous !== true
-        ? session.user.id
+    const { profile, isProfileLoading } = useAppSelector(selectAuth);
+    const userId = profile && !profile.isAnonymous
+        ? profile.userId
         : null;
     const [items, setItems] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
@@ -264,7 +264,7 @@ const useTasks = () => {
     const reloadRequested = useRef(false);
 
     const reload = useCallback(() => {
-        if (isAuthLoading) return Promise.resolve();
+        if (isProfileLoading) return Promise.resolve();
 
         reloadRevision.current += 1;
         if (reloadInFlight.current) {
@@ -307,7 +307,7 @@ const useTasks = () => {
         return operation.finally(() => {
             if (reloadInFlight.current === operation) reloadInFlight.current = null;
         });
-    }, [isAuthLoading, userId]);
+    }, [isProfileLoading, userId]);
 
     const invalidatePendingReload = useCallback(() => {
         if (!reloadInFlight.current) return;

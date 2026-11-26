@@ -23,6 +23,7 @@ import TaskEditorModal from '../components/TaskEditorModal';
 import MoveOverdueTasksModal from '../components/MoveOverdueTasksModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import VoiceTaskReviewModal from '../components/VoiceTaskReviewModal';
+import InternetRequiredSheet from '../components/InternetRequiredSheet';
 import HomeTourOverlay, { type HomeTourTarget } from '../components/HomeTourOverlay';
 import ReminderHealthBanner from '../components/ReminderHealthBanner';
 import ReminderHealthSheet from '../components/ReminderHealthSheet';
@@ -47,6 +48,8 @@ import {
     getHasReviewedBrandGuidance,
     getReminderHealthPromptsDisabled,
     getHasSeenHomeTour as readHasSeenHomeTour,
+    getHasDismissedReminderHealthBanner,
+    dismissReminderHealthBanner,
     disableReminderHealthPrompts,
     setHasSeenHomeTour as persistHomeTourCompletion,
 } from '../../../core/storage/onboardingStorage';
@@ -60,8 +63,7 @@ import {
 } from '../../../core/reminderHealth/reminderHealth';
 import {
     isNetworkError,
-    requireInternetConnection,
-    showNetworkUnavailableToast,
+    isInternetAvailable,
 } from '../../../core/network/internetAccess';
 
 const sectionOrder: TaskDateLabel[] = ['Overdue', 'Today', 'Tomorrow', 'Upcoming', 'No Date'];
@@ -115,6 +117,8 @@ const HomeScreen = () => {
     const [isReminderHealthPromptQueued, setIsReminderHealthPromptQueued] = useState(false);
     const [isReminderHealthSheetOpen, setIsReminderHealthSheetOpen] = useState(false);
     const [hasReviewedBrandGuidance, setHasReviewedBrandGuidance] = useState(false);
+    const [hasDismissedReminderHealthBanner, setHasDismissedReminderHealthBanner] =
+        useState<boolean | null>(null);
     const [reminderHealthStatus, setReminderHealthStatus] =
         useState<ReminderHealthStatus | null>(null);
     const reminderHealthPromptCheckInProgress = useRef(false);
@@ -141,12 +145,14 @@ const HomeScreen = () => {
     const refreshReminderHealth = useCallback(async () => {
         if (Platform.OS !== 'android') return;
         try {
-            const [status, brandGuidanceReviewed] = await Promise.all([
+            const [status, brandGuidanceReviewed, bannerDismissed] = await Promise.all([
                 getReminderHealthStatus(),
                 getHasReviewedBrandGuidance(),
+                getHasDismissedReminderHealthBanner(),
             ]);
             setReminderHealthStatus(status);
             setHasReviewedBrandGuidance(brandGuidanceReviewed);
+            setHasDismissedReminderHealthBanner(bannerDismissed);
         } catch (healthError) {
             console.error('Could not refresh reminder health.', healthError);
         }
@@ -221,6 +227,7 @@ const HomeScreen = () => {
     const [isSavingTask, setIsSavingTask] = useState(false);
     const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
     const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+    const [isInternetRequiredOpen, setIsInternetRequiredOpen] = useState(false);
     const [voiceReservationId, setVoiceReservationId] = useState<string | null>(null);
     const [voiceQuotaNotice, setVoiceQuotaNotice] = useState<{
         title: string;
@@ -325,6 +332,7 @@ const HomeScreen = () => {
         const hasOtherModalOpen = editingTask !== null
             || isCreateTaskOpen
             || isVoiceModalOpen
+            || isInternetRequiredOpen
             || isMoveOverdueModalOpen
             || isMovingOverdueTasks
             || taskActionTask !== null
@@ -371,6 +379,7 @@ const HomeScreen = () => {
         isMoveOverdueModalOpen,
         isMovingOverdueTasks,
         isVoiceModalOpen,
+        isInternetRequiredOpen,
         taskActionTask,
         taskToDelete,
         voiceQuotaNotice,
@@ -398,6 +407,7 @@ const HomeScreen = () => {
     );
     const showReminderHealthBanner = Platform.OS === 'android'
         && reminderHealthStatus !== null
+        && hasDismissedReminderHealthBanner === false
         && needsReminderHealthAttention(reminderHealthStatus, hasReviewedBrandGuidance);
     const selectedOverdueTasks = useMemo(
         () => items.filter(task => (
@@ -411,6 +421,16 @@ const HomeScreen = () => {
         setSelectedCategory(category);
         setIsSelectingOverdueTasks(false);
         setSelectedOverdueTaskIds([]);
+    };
+
+    const handleDismissReminderHealthBanner = async () => {
+        try {
+            await dismissReminderHealthBanner();
+            setHasDismissedReminderHealthBanner(true);
+        } catch (dismissError) {
+            console.error('Could not dismiss the reminder health banner.', dismissError);
+            Alert.alert('Could not save this setting', 'Please try again.');
+        }
     };
 
     const toggleOverdueTaskSelection = (taskId: string) => {
@@ -488,14 +508,23 @@ const HomeScreen = () => {
 
 
 
-    const reserveVoiceUse = useCallback(async (): Promise<VoiceUsageDecision | null> => {
-        if (!await requireInternetConnection()) return null;
-        return reserveVoiceRequest();
+    const showInternetRequiredSheet = useCallback(() => {
+        setIsInternetRequiredOpen(true);
     }, []);
 
+    const ensureVoiceInternet = useCallback(async (): Promise<boolean> => {
+        const available = await isInternetAvailable();
+        if (!available) showInternetRequiredSheet();
+        return available;
+    }, [showInternetRequiredSheet]);
+
+    const reserveVoiceUse = useCallback(async (): Promise<VoiceUsageDecision | null> => {
+        if (!await ensureVoiceInternet()) return null;
+        return reserveVoiceRequest();
+    }, [ensureVoiceInternet]);
     const handleConfirmVoiceTasks = async (tasks: ExtractedTask[]) => addTasks(tasks);
     const handleVoicePress = async () => {
-        if (!await requireInternetConnection()) return;
+        if (!await ensureVoiceInternet()) return;
         if (isPreparingVoiceRef.current) return;
 
         isPreparingVoiceRef.current = true;
@@ -516,7 +545,7 @@ const HomeScreen = () => {
         } catch (error) {
             console.error('Could not prepare a reserved voice request.', error);
             if (isNetworkError(error)) {
-                showNetworkUnavailableToast();
+                showInternetRequiredSheet();
             } else {
                 Alert.alert('Could not start voice input', getErrorMessage(error));
             }
@@ -577,6 +606,7 @@ const HomeScreen = () => {
             {showReminderHealthBanner ? (
                 <ReminderHealthBanner
                     onOpen={() => setIsReminderHealthSheetOpen(true)}
+                    onDismiss={() => void handleDismissReminderHealthBanner()}
                 />
             ) : null}
 
@@ -766,11 +796,16 @@ const HomeScreen = () => {
                 visible={isVoiceModalOpen}
                 initialReservationId={voiceReservationId}
                 onReserveVoiceRequest={reserveVoiceUse}
+                onNetworkUnavailable={showInternetRequiredSheet}
                 onQuotaReached={decision => {
                     setVoiceQuotaNotice(getVoiceUsageLimitNotice(decision));
                 }}
                 onClose={() => setIsVoiceModalOpen(false)}
                 onConfirm={handleConfirmVoiceTasks}
+            />
+            <InternetRequiredSheet
+                visible={isInternetRequiredOpen}
+                onClose={() => setIsInternetRequiredOpen(false)}
             />
             <ConfirmationModal
                 visible={voiceQuotaNotice !== null}

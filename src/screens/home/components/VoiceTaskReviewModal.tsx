@@ -22,15 +22,13 @@ import type { VoiceUsageDecision } from '../../../core/api/voiceUsageService';
 import AppButton from '../../../components/AppButton';
 import AppText from '../../../components/AppText';
 import useSheetTransition from '../../../components/useSheetTransition';
-import {
-    isNetworkError,
-    showNetworkUnavailableToast,
-} from '../../../core/network/internetAccess';
+import { isNetworkError } from '../../../core/network/internetAccess';
 
 interface VoiceTaskReviewModalProps {
     visible: boolean;
     initialReservationId: string | null;
     onReserveVoiceRequest: () => Promise<VoiceUsageDecision | null>;
+    onNetworkUnavailable: () => void;
     onQuotaReached: (decision: VoiceUsageDecision) => void;
     onClose: () => void;
     onConfirm: (tasks: ExtractedTask[]) => Promise<boolean>;
@@ -41,6 +39,7 @@ const VoiceTaskReviewModal = ({
     visible,
     initialReservationId,
     onReserveVoiceRequest,
+    onNetworkUnavailable,
     onQuotaReached,
     onClose,
     onConfirm,
@@ -133,7 +132,8 @@ const VoiceTaskReviewModal = ({
             return decision.reservationId;
         } catch (reservationError) {
             if (isNetworkError(reservationError)) {
-                showNetworkUnavailableToast();
+                onNetworkUnavailable();
+                return null;
             }
             setError(getErrorMessage(reservationError));
             return null;
@@ -196,8 +196,7 @@ const VoiceTaskReviewModal = ({
         setNoActionableTasks(false);
         console.error('Could not process voice input.', message);
         if (isNetworkError(message)) {
-            showNetworkUnavailableToast();
-            setError('Connect to the internet and try again.');
+            onNetworkUnavailable();
             return;
         }
         if (/AI request limits could not be verified|Could not verify voice request limits/i.test(message)) {
